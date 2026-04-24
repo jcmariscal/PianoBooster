@@ -31,6 +31,8 @@
 
 #include <assert.h>
 
+#include <QVector>
+
 #include "Cfg.h"
 #include "MidiFile.h"
 #include "Queue.h"
@@ -44,6 +46,22 @@ typedef enum
     PB_PART_left,
     PB_PART_none,
 } whichPart_t;
+
+typedef enum
+{
+    PB_SPLIT_HANDS_naive,
+    PB_SPLIT_HANDS_cost
+} splitHandsMode_t;
+
+struct CSplitHandNote
+{
+    int pitch;
+    int onset;
+    int offset;
+    int velocity;
+    int channel;
+    int track;
+};
 
 #define MAX_CHORD_NOTES    20  // The maximum notes in a chord well we only have 10 fingers
 
@@ -93,6 +111,9 @@ public:
     static whichPart_t getActiveHand(){return m_activeHand;}
     static void setSplitHands(bool enabled){m_splitHands = enabled;}
     static bool splitHandsEnabled(){return m_splitHands;}
+    static void setSplitHandsMode(splitHandsMode_t mode){m_splitHandsMode = (mode == PB_SPLIT_HANDS_cost) ? mode : PB_SPLIT_HANDS_naive;}
+    static splitHandsMode_t splitHandsMode(){return m_splitHandsMode;}
+    static bool splitHandsNaive(){return m_splitHandsMode == PB_SPLIT_HANDS_naive;}
     static bool splitHandsForChannel(int channel)
     {
         if (!m_splitHands)
@@ -101,6 +122,8 @@ public:
             return false;
         return m_splitHandChannel[channel];
     }
+    static void clearSplitHandAssignments();
+    static void assignSplitHands(const QVector<CSplitHandNote>& notes);
     static int splitPointForPitches(const int *pitches, int count);
     static whichPart_t splitHandForPitch(int midiNote, int splitPoint)
     {
@@ -120,6 +143,7 @@ private:
     static int m_leftHandChannel;
     static int m_rightHandChannel;
     static bool m_splitHands;
+    static splitHandsMode_t m_splitHandsMode;
     static whichPart_t m_activeHand;
     static bool m_splitHandChannel[MAX_MIDI_CHANNELS];
     // -1 means there is a single track and no separate left and right hand parts

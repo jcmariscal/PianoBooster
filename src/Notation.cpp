@@ -279,7 +279,7 @@ void CNotation::findNoteSlots()
             if (m_currentSlot.length() > 0)
             {
                 // the cord separator arrives very late so we are behind the times
-                if (CNote::splitHandsForChannel(m_displayChannel))
+                if (CNote::splitHandsNaive() && CNote::splitHandsForChannel(m_displayChannel))
                     m_currentSlot.applySplitHands();
                 m_currentSlot.analyse();
                 m_slotQueue->push(m_currentSlot);

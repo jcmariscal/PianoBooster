@@ -212,6 +212,7 @@ private:
     CSettings* m_settings;
     QList<CTrackListItem> m_partsList;
     QVector<AnalyseItem> m_midiChannels;
+    QVector<CSplitHandNote> m_splitHandNotes;
     int m_noteFrequency[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES];
     int m_splitHandsChannel;
     int m_splitHandsChannelCount;

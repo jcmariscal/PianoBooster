@@ -38,6 +38,7 @@ class CMerge
 public:
     CMerge()
     {
+        m_currentTime = 0;
     }
     CMidiEvent readMidiEvent();
         //you should always have a virtual destructor when using virtual functions
@@ -52,7 +53,7 @@ protected:
 
 private:
     QVector<CMidiEvent> m_mergeEvents;
+    int m_currentTime;
 };
 
 #endif // __MERGE_H__
-

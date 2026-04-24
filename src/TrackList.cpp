@@ -42,6 +42,7 @@ void CTrackList::reset(int numberOfTracks)
 {
     m_partsList.clear();
     m_midiChannels.clear();
+    m_splitHandNotes.clear();
     m_splitHandsChannel = -1;
     m_splitHandsChannelCount = 0;
     for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++) {
@@ -81,13 +82,10 @@ QList<int> CTrackList::findSplittableChannels()
 
     if (activeNonDrumChannels.count() == 1)
     {
-        const int chan = activeNonDrumChannels.first();
-        if (m_midiChannels[chan].trackCount() != 2)
-            channels.append(chan);
-        return channels;
+        return activeNonDrumChannels;
     }
 
-    if (activeNonDrumChannels.count() > 2 && pianoChannels.count() == activeNonDrumChannels.count())
+    if (activeNonDrumChannels.count() >= 2 && pianoChannels.count() == activeNonDrumChannels.count())
         return pianoChannels;
 
     return channels;
@@ -103,6 +101,14 @@ void CTrackList::examineMidiEvent(CMidiEvent event)
         if (event.type() == MIDI_NOTE_ON)
         {
             m_midiChannels[chan].addNoteEvent(event);
+            CSplitHandNote note;
+            note.pitch = event.originalNote();
+            note.onset = event.absoluteTime();
+            note.offset = event.absoluteTime() + qMax(1, event.getDuration());
+            note.velocity = event.velocity();
+            note.channel = event.channel();
+            note.track = event.track();
+            m_splitHandNotes.append(note);
 
             // count each note so we can guess the key signature
             if (event.note() >= 0 && event.note() < MAX_MIDI_NOTES) {
@@ -265,6 +271,7 @@ void CTrackList::refresh()
         CNote::setChannelHands(-2, -2);
 
     CNote::clearSplitHandChannels();
+    CNote::clearSplitHandAssignments();
     m_splitHandsChannel = -1;
     m_splitHandsChannelCount = 0;
     m_partsList.clear();
@@ -282,6 +289,11 @@ void CTrackList::refresh()
         CNote::setChannelHands(m_splitHandsChannel, m_splitHandsChannel);
         for (int i = 0; i < splitHandsChannels.count(); ++i)
             CNote::setSplitHandChannel(splitHandsChannels.at(i), true);
+        QVector<CSplitHandNote> notes;
+        for (const CSplitHandNote& note : m_splitHandNotes)
+            if (CNote::splitHandsForChannel(note.channel))
+                notes.append(note);
+        CNote::assignSplitHands(notes);
         m_partsList.append(CTrackListItem(m_splitHandsChannel, PB_PART_right));
         m_partsList.append(CTrackListItem(m_splitHandsChannel, PB_PART_left));
     }

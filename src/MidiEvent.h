@@ -99,10 +99,13 @@ public:
     {
         m_type = MIDI_NONE;
         m_deltaTime = 0;
+        m_absoluteTime = 0;
         m_channel = 0;
         m_note = 0;
+        m_originalNote = 0;
         m_velocity = 0;
         m_duration = 0;
+        m_track = 0;
     }
 
     int deltaTime(){return m_deltaTime;}
@@ -114,6 +117,7 @@ public:
     //@brief returns the midi note number
     int note() const {return m_note;}
     void setNote(int note){m_note = note;}
+    int originalNote() const {return m_originalNote;}
     int programme() const {return m_note;}
     int channel() const {return m_channel;} // can also contain the track number
     void setChannel(int chan){m_channel = chan;}
@@ -127,6 +131,8 @@ public:
     void setDatat2(int value) {m_velocity = value;}
     void setTrack(int track) {m_track = track;}
     int track() {return m_track;}
+    int absoluteTime() const {return m_absoluteTime;}
+    void setAbsoluteTime(int time) {m_absoluteTime = time;}
 
     void noteOffEvent( int deltaTime, int channel, int note, int velocity)
     {
@@ -134,6 +140,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = channel;
         m_note = note;
+        m_originalNote = note;
         m_velocity = velocity;
     }
 
@@ -143,6 +150,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = channel;
         m_note = note;
+        m_originalNote = note;
         m_velocity = velocity;
     }
 
@@ -152,6 +160,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = channel;
         m_note = data1;
+        m_originalNote = data1;
         m_velocity = data2;
     }
 
@@ -161,6 +170,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = channel;
         m_note = program;
+        m_originalNote = program;
         m_velocity = 0;
     }
 
@@ -170,6 +180,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = channel;
         m_note = data1;
+        m_originalNote = data1;
         m_velocity = data2;
     }
 
@@ -179,6 +190,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = channel;
         m_note = data1;
+        m_originalNote = data1;
         m_velocity = 0;
     }
 
@@ -188,6 +200,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = channel;
         m_note = data1;
+        m_originalNote = data1;
         m_velocity = data2;
     }
 
@@ -195,6 +208,7 @@ public:
     {
         m_type = MIDI_PB_chordSeparator;
         m_note = 0;
+        m_originalNote = 0;
         m_channel = event.channel();
         m_deltaTime = 0;
         m_velocity = 0;
@@ -206,6 +220,7 @@ public:
         m_deltaTime = deltaTime;
         m_channel = 0;
         m_note = data1;
+        m_originalNote = data1;
         m_velocity = data2;
     }
 
@@ -215,6 +230,7 @@ public:
         m_type = MIDI_PB_collateRawMidiData;
         m_deltaTime = deltaTime;
         m_note = nextByte;
+        m_originalNote = nextByte;
         m_velocity = 0;
     }
 
@@ -334,8 +350,10 @@ public:
 private:
     int m_type;
     int m_deltaTime;
+    int m_absoluteTime;
     int m_channel;
     int m_note;
+    int m_originalNote;
     int m_velocity;
     int m_duration;
     int m_track;

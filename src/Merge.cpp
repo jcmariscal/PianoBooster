@@ -31,6 +31,7 @@
 void  CMerge::initMergedEvents()
 {
     int i;
+    m_currentTime = 0;
     for( i = 0; i < m_mergeEvents.size(); i++)
     {
         m_mergeEvents[i].clear();
@@ -96,6 +97,8 @@ CMidiEvent CMerge::readMidiEvent()
 
     mergeIdx = nextMergedEvent();
     event = m_mergeEvents[mergeIdx];
+    m_currentTime += event.deltaTime();
+    event.setAbsoluteTime(m_currentTime);
 
     m_mergeEvents[mergeIdx].clear();
     if (checkMidiEventFromStream(mergeIdx) )

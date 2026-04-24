@@ -64,6 +64,8 @@ QtWindow::QtWindow()
 
     Cfg::setDefaults();
     CNote::setSplitHands(m_settings->value("Song/SplitHands", false).toBool());
+    CNote::setSplitHandsMode(static_cast<splitHandsMode_t>(
+        m_settings->value("Song/SplitHandsMode", PB_SPLIT_HANDS_naive).toInt()));
 
     decodeCommandLine();
 
@@ -387,6 +389,27 @@ void QtWindow::createActions()
     m_splitHandsAct->setChecked(CNote::splitHandsEnabled());
     connect(m_splitHandsAct, SIGNAL(toggled(bool)), this, SLOT(on_splitHands(bool)));
 
+    m_splitHandsModeGroup = new QActionGroup(this);
+    m_splitHandsModeGroup->setExclusive(true);
+    m_splitHandsNaiveAct = new QAction(tr("&Naive"), this);
+    m_splitHandsNaiveAct->setToolTip(tr("Split each chord around its pitch gap"));
+    m_splitHandsNaiveAct->setCheckable(true);
+    m_splitHandsNaiveAct->setData(PB_SPLIT_HANDS_naive);
+    m_splitHandsModeGroup->addAction(m_splitHandsNaiveAct);
+    connect(m_splitHandsNaiveAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
+
+    m_splitHandsCostAct = new QAction(tr("&Cost Minimized"), this);
+    m_splitHandsCostAct->setToolTip(tr("Use global cost minimization for virtual hand assignment"));
+    m_splitHandsCostAct->setCheckable(true);
+    m_splitHandsCostAct->setData(PB_SPLIT_HANDS_cost);
+    m_splitHandsModeGroup->addAction(m_splitHandsCostAct);
+    connect(m_splitHandsCostAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
+
+    if (CNote::splitHandsMode() == PB_SPLIT_HANDS_cost)
+        m_splitHandsCostAct->setChecked(true);
+    else
+        m_splitHandsNaiveAct->setChecked(true);
+
     QAction* act = new QAction(this);
     act->setShortcut(tr("Shift+F1"));
     connect(act, SIGNAL(triggered()), this, SLOT(enableFollowTempo()));
@@ -438,6 +461,9 @@ void QtWindow::createMenus()
     m_songMenu = menuBar()->addMenu(tr("&Song"));
     m_songMenu->setToolTipsVisible(true);
     m_songMenu->addAction(m_splitHandsAct);
+    m_splitHandsConfigMenu = m_songMenu->addMenu(tr("Split-Hand &Configuration"));
+    m_splitHandsConfigMenu->addAction(m_splitHandsNaiveAct);
+    m_splitHandsConfigMenu->addAction(m_splitHandsCostAct);
     m_songMenu->addSeparator();
     m_songMenu->addAction(m_songDetailsAct);
 
@@ -488,6 +514,30 @@ void QtWindow::on_splitHands(bool checked)
 {
     CNote::setSplitHands(checked);
     m_settings->setValue("Song/SplitHands", checked);
+
+    const QString songFile = m_settings->getCurrentSongLongFileName();
+    if (songFile.isEmpty() || !QFile::exists(songFile))
+        return;
+
+    if (m_song->playingMusic())
+    {
+        m_song->playMusic(false);
+        m_topBar->setPlayButtonState(false);
+    }
+
+    m_song->rewind();
+    m_sidePanel->refresh();
+    m_song->forceScoreRedraw();
+}
+
+void QtWindow::on_splitHandsMode()
+{
+    QAction *action = qobject_cast<QAction *>(sender());
+    if (!action)
+        return;
+
+    CNote::setSplitHandsMode(static_cast<splitHandsMode_t>(action->data().toInt()));
+    m_settings->setValue("Song/SplitHandsMode", CNote::splitHandsMode());
 
     const QString songFile = m_settings->getCurrentSongLongFileName();
     if (songFile.isEmpty() || !QFile::exists(songFile))
