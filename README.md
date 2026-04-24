@@ -32,6 +32,13 @@ Piano Booster is a free (Open Source) program, available from: <https://www.pian
 * Timing markers show if you are playing ahead or behind the beat.
 * A different instrument sound is used for the right and wrong notes that you play on the piano.
 
+# SPLIT HANDS
+
+The Song/Split Hands option can create virtual left-hand and right-hand parts without changing the MIDI file. The Split-Hand Configuration menu provides several assignment methods. The clustering-based method is fast and works best for melody/accompaniment textures, Alberti bass patterns, pop/jazz lead sheets, and similar music where the hands stay in separate pitch regions. The voice-separation method first builds monophonic voice streams and then groups those voices into hands, which can work better for contrapuntal music.
+
+Known clustering limitations: hand crossings, Bach-style contrapuntal voice crossings, solo lines, and large register shifts can be mislabeled because the method is based on local pitch regions rather than voice identity or fingering.
+
+Known voice-separation limitations: thick block chords, hand crossings where a voice changes hands, and very wide multi-voice textures can still require fallback repair because voice extraction is ambiguous.
 
 # GETTING STARTED
 
