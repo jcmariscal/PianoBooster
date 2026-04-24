@@ -198,6 +198,53 @@ void drawScaleDegreeNumber(int number, float x, float y)
             drawNumberSegment(x, y, segment);
     glEnd();
 }
+
+int absoluteInt(int value)
+{
+    return value < 0 ? -value : value;
+}
+
+float scaleDegreePlateWidth(int accidental)
+{
+    return 18.0f + static_cast<float>(absoluteInt(accidental)) * 8.0f;
+}
+
+float scaleDegreeNumberX(float x, int accidental)
+{
+    return accidental == 0 ? x : x - 4.0f;
+}
+
+void drawSuffixSharp(float x, float y)
+{
+    glBegin(GL_LINES);
+    glVertex2f(x - 2.0f, y + 5.0f); glVertex2f(x - 2.0f, y - 5.0f);
+    glVertex2f(x + 2.0f, y + 5.0f); glVertex2f(x + 2.0f, y - 5.0f);
+    glVertex2f(x - 4.0f, y + 1.8f); glVertex2f(x + 4.0f, y + 3.0f);
+    glVertex2f(x - 4.0f, y - 3.0f); glVertex2f(x + 4.0f, y - 1.8f);
+    glEnd();
+}
+
+void drawSuffixFlat(float x, float y)
+{
+    glBegin(GL_LINE_STRIP);
+    glVertex2f(x - 2.5f, y + 6.0f);
+    glVertex2f(x - 2.5f, y - 5.0f);
+    glVertex2f(x + 2.7f, y - 1.5f);
+    glVertex2f(x + 3.0f, y + 1.5f);
+    glVertex2f(x + 0.2f, y + 2.8f);
+    glEnd();
+}
+
+void drawScaleDegreeSuffix(int accidental, float x, float y)
+{
+    const int count = absoluteInt(accidental);
+    for (int i = 0; i < count; ++i) {
+        if (accidental > 0)
+            drawSuffixSharp(x + static_cast<float>(i) * 6.0f, y);
+        else
+            drawSuffixFlat(x + static_cast<float>(i) * 6.0f, y);
+    }
+}
 #endif
 }
 
@@ -305,12 +352,16 @@ void CDraw::renderLabelText(float x, float y, const char* s, bool synthesiaStyle
 
 QString noteLabelText(CSettings *settings, int midiNote, staveLookup_t item)
 {
-    if (settings != nullptr && settings->showNoteNumbers())
-        return QString::number(CStavePos::midiNote2ScaleDegree(midiNote));
-
     const QChar flat = QChar(0x266D);
     const QChar natural = QChar(0x266E);
     const QChar sharp = QChar(0x266F);
+    if (settings != nullptr && settings->showNoteNumbers()) {
+        const int degree = CStavePos::midiNote2ScaleDegree(midiNote);
+        const int accidental = CStavePos::midiNote2ScaleDegreeAccidental(midiNote);
+        const QChar symbol = accidental < 0 ? flat : sharp;
+        return QString::number(degree) + QString(qAbs(accidental), symbol);
+    }
+
     const QString names[7] = {
         QObject::tr("C"), QObject::tr("D"), QObject::tr("E"), QObject::tr("F"),
         QObject::tr("G"), QObject::tr("A"), QObject::tr("B")
@@ -340,12 +391,16 @@ void CDraw::drawNoteName(int midiNote, float x, float y, int type)
     glLineWidth(synthesiaStyle ? 2.2f : 1.7f);
 
 #ifdef NO_USE_FTGL
-    const float plateWidth = m_settings != nullptr && m_settings->showNoteNumbers() ? 18.0f : 24.0f;
+    const int degreeAccidental = CStavePos::midiNote2ScaleDegreeAccidental(midiNote);
+    const bool showNumbers = m_settings != nullptr && m_settings->showNoteNumbers();
+    const float plateWidth = showNumbers ? scaleDegreePlateWidth(degreeAccidental) : 24.0f;
     drawLabelPlate(x, y, plateWidth, synthesiaStyle);
     drColor(labelTextColor(synthesiaStyle));
-    if (m_settings != nullptr && m_settings->showNoteNumbers())
+    if (showNumbers)
     {
-        drawScaleDegreeNumber(CStavePos::midiNote2ScaleDegree(midiNote), x, y);
+        drawScaleDegreeNumber(CStavePos::midiNote2ScaleDegree(midiNote),
+                              scaleDegreeNumberX(x, degreeAccidental), y);
+        drawScaleDegreeSuffix(degreeAccidental, x + 6.0f, y);
         return;
     }
 

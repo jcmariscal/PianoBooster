@@ -61,15 +61,31 @@ int normalizedPianoNote(int pianoNote)
     return positiveModulo(pianoNote - 1, NotesInScale) + 1;
 }
 
+int pitchClass(int midiNote)
+{
+    return positiveModulo(midiNote, SemitonesInOctave);
+}
+
 int majorTonicPianoNote(int keySignature)
 {
     static const int tonicByKey[] = {1, 5, 2, 6, 3, 7, 4, 1, 5, 2, 6, 3, 7, 4, 1};
     return tonicByKey[clampedKeySignature(keySignature) + 7];
 }
 
+int majorTonicPitchClass(int keySignature)
+{
+    static const int tonicByKey[] = {11, 6, 1, 8, 3, 10, 5, 0, 7, 2, 9, 4, 11, 6, 1};
+    return tonicByKey[clampedKeySignature(keySignature) + 7];
+}
+
 int minorTonicPianoNote(int keySignature)
 {
     return normalizedPianoNote(majorTonicPianoNote(keySignature) - 2);
+}
+
+int minorTonicPitchClass(int keySignature)
+{
+    return positiveModulo(majorTonicPitchClass(keySignature) - 3, SemitonesInOctave);
 }
 
 int tonicPianoNote(int keySignature, int majorMinor)
@@ -79,9 +95,41 @@ int tonicPianoNote(int keySignature, int majorMinor)
     return majorTonicPianoNote(keySignature);
 }
 
+int tonicPitchClass(int keySignature, int majorMinor)
+{
+    if (majorMinor == 1)
+        return minorTonicPitchClass(keySignature);
+    return majorTonicPitchClass(keySignature);
+}
+
 int degreeFromPianoNote(int pianoNote, int tonicPianoNote)
 {
     return positiveModulo(pianoNote - tonicPianoNote, NotesInScale) + 1;
+}
+
+int scaleInterval(int degree, int majorMinor)
+{
+    static const int majorIntervals[] = {0, 2, 4, 5, 7, 9, 11};
+    static const int minorIntervals[] = {0, 2, 3, 5, 7, 8, 10};
+    if (majorMinor == 1)
+        return minorIntervals[degree - 1];
+    return majorIntervals[degree - 1];
+}
+
+int signedSemitoneDifference(int actualPitch, int expectedPitch)
+{
+    int difference = positiveModulo(actualPitch - expectedPitch, SemitonesInOctave);
+    if (difference > SemitonesInOctave / 2)
+        difference -= SemitonesInOctave;
+    return difference;
+}
+
+staveLookup_t scaleDegreeLookupItem(int midiNote)
+{
+    const staveLookup_t *lookup = CStavePos::getstaveLookupTable(0);
+    if (CStavePos::getKeySignature() != NOT_USED)
+        lookup = CStavePos::getstaveLookupTable(clampedKeySignature(CStavePos::getKeySignature()));
+    return lookup[pitchClass(midiNote)];
 }
 }
 
@@ -136,13 +184,18 @@ staveLookup_t CStavePos::midiNote2Name(int midiNote)
 
 int CStavePos::midiNote2ScaleDegree(int midiNote)
 {
-    const int index = positiveModulo(midiNote, SemitonesInOctave);
-    const staveLookup_t *lookup = m_staveLookUpTable;
-    if (lookup == nullptr)
-        lookup = getstaveLookupTable(0);
-    const int pianoNote = normalizedPianoNote(lookup[index].pianoNote);
+    const int pianoNote = normalizedPianoNote(scaleDegreeLookupItem(midiNote).pianoNote);
     const int tonic = tonicPianoNote(m_KeySignature, m_KeySignatureMajorMinor);
     return degreeFromPianoNote(pianoNote, tonic);
+}
+
+int CStavePos::midiNote2ScaleDegreeAccidental(int midiNote)
+{
+    const int degree = midiNote2ScaleDegree(midiNote);
+    const int tonic = tonicPitchClass(m_KeySignature, m_KeySignatureMajorMinor);
+    const int expected = positiveModulo(tonic + scaleInterval(degree, m_KeySignatureMajorMinor),
+                                        SemitonesInOctave);
+    return signedSemitoneDifference(pitchClass(midiNote), expected);
 }
 
 void CStavePos::setKeySignature(int key, int majorMinor)
