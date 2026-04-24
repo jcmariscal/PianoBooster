@@ -412,6 +412,363 @@ QVector<whichPart_t> costSplitHands(const QVector<CSplitHandNote>& notes, int be
     return labels;
 }
 
+QVector<int> noteOrderByTime(const QVector<CSplitHandNote>& notes)
+{
+    QVector<int> order;
+    for (int i = 0; i < notes.count(); ++i)
+        order.append(i);
+    std::sort(order.begin(), order.end(), [&notes](int a, int b) {
+        return notes[a].onset == notes[b].onset ? notes[a].pitch < notes[b].pitch : notes[a].onset < notes[b].onset;
+    });
+    return order;
+}
+
+bool isMonophonic(const QVector<CSplitHandNote>& notes)
+{
+    int lastOffset = -1;
+    for (int idx : noteOrderByTime(notes)) {
+        if (notes[idx].onset < lastOffset)
+            return false;
+        lastOffset = std::max(lastOffset, notes[idx].offset);
+    }
+    return true;
+}
+
+QVector<whichPart_t> pitchSplitLabels(const QVector<CSplitHandNote>& notes)
+{
+    QVector<whichPart_t> labels(notes.count(), PB_PART_right);
+    if (notes.count() <= 1)
+        return labels;
+    int pitches[MAX_MIDI_NOTES];
+    int count = std::min(notes.count(), MAX_MIDI_NOTES);
+    for (int i = 0; i < count; ++i)
+        pitches[i] = notes[i].pitch;
+    int splitPoint = CNote::splitPointForPitches(pitches, count);
+    for (int i = 0; i < notes.count(); ++i)
+        labels[i] = CNote::splitHandForPitch(notes[i].pitch, splitPoint);
+    return labels;
+}
+
+bool fitPitchClusters(const QVector<int>& indexes, const QVector<CSplitHandNote>& notes, double& low, double& high)
+{
+    if (indexes.count() < 4)
+        return false;
+    low = high = notes[indexes.first()].pitch;
+    for (int idx : indexes) {
+        low = std::min(low, static_cast<double>(notes[idx].pitch));
+        high = std::max(high, static_cast<double>(notes[idx].pitch));
+    }
+    if (high - low < 7.0)
+        return false;
+    for (int iter = 0; iter < 10; ++iter) {
+        double sumLow = 0.0, sumHigh = 0.0, weightLow = 0.0, weightHigh = 0.0;
+        int countLow = 0, countHigh = 0;
+        for (int idx : indexes) {
+            double weight = std::max(1, notes[idx].offset - notes[idx].onset);
+            if (std::abs(notes[idx].pitch - low) <= std::abs(notes[idx].pitch - high)) {
+                sumLow += weight * notes[idx].pitch; weightLow += weight; countLow++;
+            } else {
+                sumHigh += weight * notes[idx].pitch; weightHigh += weight; countHigh++;
+            }
+        }
+        if (countLow <= 1 || countHigh <= 1)
+            return false;
+        low = sumLow / weightLow;
+        high = sumHigh / weightHigh;
+    }
+    if (low > high)
+        std::swap(low, high);
+    return high - low >= 4.0;
+}
+
+double clusterRightProbability(int pitch, double low, double high)
+{
+    if (high <= low)
+        return 0.5;
+    double p = (pitch - low) / (high - low);
+    return std::max(0.0, std::min(1.0, p));
+}
+
+double windowCenterWeight(int onset, int start, int width)
+{
+    double center = start + width / 2.0;
+    double distance = std::abs(onset - center) / std::max(1.0, width / 2.0);
+    return std::max(0.1, 1.0 - distance);
+}
+
+void addClusterWindowVotes(const QVector<CSplitHandNote>& notes, int start, int width,
+                           QVector<double>& rightScore, QVector<double>& totalWeight)
+{
+    QVector<int> indexes;
+    for (int i = 0; i < notes.count(); ++i)
+        if (notes[i].onset >= start && notes[i].onset < start + width)
+            indexes.append(i);
+    double low, high;
+    if (!fitPitchClusters(indexes, notes, low, high))
+        return;
+    for (int idx : indexes) {
+        double weight = windowCenterWeight(notes[idx].onset, start, width);
+        rightScore[idx] += weight * clusterRightProbability(notes[idx].pitch, low, high);
+        totalWeight[idx] += weight;
+    }
+}
+
+void suppressFlipFlops(QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes)
+{
+    QVector<int> order = noteOrderByTime(notes);
+    for (int i = 1; i + 1 < order.count(); ++i) {
+        int prev = order[i - 1], cur = order[i], next = order[i + 1];
+        if (labels[prev] == labels[next] && labels[cur] != labels[prev]) {
+            int neighborPitch = (notes[prev].pitch + notes[next].pitch) / 2;
+            if (std::abs(notes[cur].pitch - neighborPitch) <= 7)
+                labels[cur] = labels[prev];
+        }
+    }
+}
+
+QVector<int> activeIndexes(const QVector<CSplitHandNote>& notes, const QVector<whichPart_t>& labels,
+                           int time, whichPart_t hand)
+{
+    QVector<int> active;
+    for (int i = 0; i < notes.count(); ++i)
+        if (labels[i] == hand && notes[i].onset <= time && notes[i].offset > time)
+            active.append(i);
+    return active;
+}
+
+int spanOfIndexes(const QVector<int>& indexes, const QVector<CSplitHandNote>& notes)
+{
+    if (indexes.count() <= 1)
+        return 0;
+    int low = notes[indexes.first()].pitch;
+    int high = low;
+    for (int idx : indexes) {
+        low = std::min(low, notes[idx].pitch);
+        high = std::max(high, notes[idx].pitch);
+    }
+    return high - low;
+}
+
+int farthestFromMean(const QVector<int>& indexes, const QVector<CSplitHandNote>& notes)
+{
+    double mean = 0.0;
+    for (int idx : indexes)
+        mean += notes[idx].pitch;
+    mean /= std::max(1, indexes.count());
+    int farthest = indexes.first();
+    for (int idx : indexes)
+        if (std::abs(notes[idx].pitch - mean) > std::abs(notes[farthest].pitch - mean))
+            farthest = idx;
+    return farthest;
+}
+
+void repairHandAt(QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes, int time, whichPart_t hand)
+{
+    QVector<int> active = activeIndexes(notes, labels, time, hand);
+    while (active.count() > 5 || spanOfIndexes(active, notes) > 14) {
+        int outlier = farthestFromMean(active, notes);
+        labels[outlier] = (hand == PB_PART_right) ? PB_PART_left : PB_PART_right;
+        active = activeIndexes(notes, labels, time, hand);
+    }
+}
+
+void repairClusterLabels(QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes)
+{
+    for (int idx : noteOrderByTime(notes)) {
+        repairHandAt(labels, notes, notes[idx].onset, PB_PART_left);
+        repairHandAt(labels, notes, notes[idx].onset, PB_PART_right);
+    }
+}
+
+QVector<whichPart_t> clusterSplitHands(const QVector<CSplitHandNote>& notes)
+{
+    if (isMonophonic(notes))
+        return QVector<whichPart_t>(notes.count(), PB_PART_right);
+
+    QVector<whichPart_t> labels = pitchSplitLabels(notes);
+    QVector<double> rightScore(notes.count(), 0.0);
+    QVector<double> totalWeight(notes.count(), 0.0);
+    int end = 0;
+    for (const CSplitHandNote& note : notes)
+        end = std::max(end, note.offset);
+    int width = std::max(1, CMidiFile::getPulsesPerQuarterNote() * 6);
+    int hop = std::max(1, CMidiFile::getPulsesPerQuarterNote());
+    for (int start = 0; start <= end; start += hop)
+        addClusterWindowVotes(notes, start, width, rightScore, totalWeight);
+    for (int i = 0; i < notes.count(); ++i)
+        if (totalWeight[i] > 0.0)
+            labels[i] = (rightScore[i] / totalWeight[i] > 0.5) ? PB_PART_right : PB_PART_left;
+    suppressFlipFlops(labels, notes);
+    repairClusterLabels(labels, notes);
+    return labels;
+}
+
+double voiceMeanPitch(const QVector<int>& voice, const QVector<CSplitHandNote>& notes)
+{
+    double sum = 0.0;
+    for (int idx : voice)
+        sum += notes[idx].pitch;
+    return sum / std::max(1, voice.count());
+}
+
+int closestVoice(const QVector<QVector<int>>& voices, const QVector<CSplitHandNote>& notes, int noteIndex)
+{
+    int best = 0;
+    double bestDistance = 1000000.0;
+    for (int v = 0; v < voices.count(); ++v) {
+        double distance = std::abs(notes[noteIndex].pitch - voiceMeanPitch(voices[v], notes));
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = v;
+        }
+    }
+    return best;
+}
+
+int chooseAppendVoice(const QVector<QVector<int>>& voices, const QVector<CSplitHandNote>& notes,
+                      int noteIndex, double& bestCost)
+{
+    int best = -1;
+    bestCost = 1000000.0;
+    int maxRest = CMidiFile::getPulsesPerQuarterNote() * 8;
+    int overlapTolerance = std::max(1, CMidiFile::getPulsesPerQuarterNote() / 16);
+    for (int v = 0; v < voices.count(); ++v) {
+        int last = voices[v].last();
+        int gap = notes[noteIndex].onset - notes[last].offset;
+        if (gap < -overlapTolerance || gap > maxRest)
+            continue;
+        double cost = std::abs(notes[noteIndex].pitch - notes[last].pitch);
+        cost += 0.5 * std::max(0, gap) / std::max(1, CMidiFile::getPulsesPerQuarterNote());
+        if (cost < bestCost) {
+            bestCost = cost;
+            best = v;
+        }
+    }
+    return best;
+}
+
+QVector<int> separateVoices(const QVector<CSplitHandNote>& notes, int maxVoices)
+{
+    QVector<QVector<int>> voices;
+    QVector<int> voiceIds(notes.count(), -1);
+    for (int idx : noteOrderByTime(notes)) {
+        double cost;
+        int voice = chooseAppendVoice(voices, notes, idx, cost);
+        if ((voice < 0 || cost > 12.0) && voices.count() < maxVoices) {
+            voices.append(QVector<int>());
+            voice = voices.count() - 1;
+        } else if (voice < 0) {
+            voice = closestVoice(voices, notes, idx);
+        }
+        voices[voice].append(idx);
+        voiceIds[idx] = voice;
+    }
+    return voiceIds;
+}
+
+QVector<QVector<int>> notesByVoice(const QVector<int>& voiceIds)
+{
+    QVector<QVector<int>> voices;
+    for (int voice : voiceIds)
+        if (voice >= voices.count())
+            voices.resize(voice + 1);
+    for (int i = 0; i < voiceIds.count(); ++i)
+        if (voiceIds[i] >= 0)
+            voices[voiceIds[i]].append(i);
+    return voices;
+}
+
+QVector<whichPart_t> labelsFromVoiceMask(const QVector<int>& voiceIds, int mask)
+{
+    QVector<whichPart_t> labels(voiceIds.count(), PB_PART_left);
+    for (int i = 0; i < voiceIds.count(); ++i)
+        if (voiceIds[i] >= 0 && (mask & (1 << voiceIds[i])))
+            labels[i] = PB_PART_right;
+    return labels;
+}
+
+double voiceMaskMean(const QVector<QVector<int>>& voices, const QVector<CSplitHandNote>& notes, int mask)
+{
+    double sum = 0.0;
+    int count = 0;
+    for (int v = 0; v < voices.count(); ++v) {
+        if (!(mask & (1 << v)))
+            continue;
+        for (int idx : voices[v]) {
+            sum += notes[idx].pitch;
+            count++;
+        }
+    }
+    return count == 0 ? 0.0 : sum / count;
+}
+
+void releaseActiveNotes(QVector<SplitActiveNote>& active, int onset)
+{
+    int lastPitch = -1;
+    int lastTime = 0;
+    releaseHand(active, onset, lastPitch, lastTime);
+}
+
+double voicePartitionCost(const QVector<CSplitHandNote>& notes, const QVector<whichPart_t>& labels)
+{
+    QVector<SplitActiveNote> left;
+    QVector<SplitActiveNote> right;
+    double cost = 0.0;
+    QVector<int> order = noteOrderByTime(notes);
+    for (int pos = 0; pos < order.count();) {
+        int onset = notes[order[pos]].onset;
+        releaseActiveNotes(left, onset);
+        releaseActiveNotes(right, onset);
+        while (pos < order.count() && notes[order[pos]].onset == onset) {
+            SplitActiveNote active = {notes[order[pos]].pitch, notes[order[pos]].offset};
+            (labels[order[pos]] == PB_PART_right ? right : left).append(active);
+            pos++;
+        }
+        sortActive(left);
+        sortActive(right);
+        SplitState state;
+        state.left = left;
+        state.right = right;
+        cost += activeCost(left) + activeCost(right) + crossoverCost(state) + collisionCost(state);
+    }
+    return cost;
+}
+
+int bestVoiceMask(const QVector<QVector<int>>& voices, const QVector<CSplitHandNote>& notes)
+{
+    if (voices.count() == 1)
+        return voiceMeanPitch(voices[0], notes) >= MIDDLE_C ? 1 : 0;
+    if (voices.count() == 2)
+        return voiceMeanPitch(voices[0], notes) < voiceMeanPitch(voices[1], notes) ? 2 : 1;
+
+    int bestMask = 1;
+    double bestCost = 1000000000.0;
+    int maxMask = 1 << voices.count();
+    for (int mask = 1; mask + 1 < maxMask; ++mask) {
+        if (voiceMaskMean(voices, notes, mask) <= voiceMaskMean(voices, notes, (maxMask - 1) ^ mask))
+            continue;
+        QVector<int> voiceIds(notes.count(), -1);
+        for (int v = 0; v < voices.count(); ++v)
+            for (int idx : voices[v])
+                voiceIds[idx] = v;
+        double cost = voicePartitionCost(notes, labelsFromVoiceMask(voiceIds, mask));
+        if (cost < bestCost) {
+            bestCost = cost;
+            bestMask = mask;
+        }
+    }
+    return bestMask;
+}
+
+QVector<whichPart_t> voiceSplitHands(const QVector<CSplitHandNote>& notes)
+{
+    QVector<int> voiceIds = separateVoices(notes, 6);
+    QVector<QVector<int>> voices = notesByVoice(voiceIds);
+    QVector<whichPart_t> labels = labelsFromVoiceMask(voiceIds, bestVoiceMask(voices, notes));
+    repairClusterLabels(labels, notes);
+    return labels;
+}
+
 } // namespace
 
 
@@ -453,10 +810,16 @@ void CNote::clearSplitHandAssignments()
 void CNote::assignSplitHands(const QVector<CSplitHandNote>& notes)
 {
     clearSplitHandAssignments();
-    if (notes.isEmpty() || CNote::splitHandsMode() != PB_SPLIT_HANDS_cost)
+    if (notes.isEmpty() || CNote::splitHandsMode() == PB_SPLIT_HANDS_naive)
         return;
 
-    const QVector<whichPart_t> labels = costSplitHands(notes, 50);
+    QVector<whichPart_t> labels;
+    if (CNote::splitHandsMode() == PB_SPLIT_HANDS_cluster)
+        labels = clusterSplitHands(notes);
+    else if (CNote::splitHandsMode() == PB_SPLIT_HANDS_voices)
+        labels = voiceSplitHands(notes);
+    else
+        labels = costSplitHands(notes, 50);
     for (int i = 0; i < notes.count(); ++i)
         g_splitHandAssignments.insert(splitNoteKey(notes[i]), labels[i]);
 }

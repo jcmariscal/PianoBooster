@@ -405,7 +405,25 @@ void QtWindow::createActions()
     m_splitHandsModeGroup->addAction(m_splitHandsCostAct);
     connect(m_splitHandsCostAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
 
-    if (CNote::splitHandsMode() == PB_SPLIT_HANDS_cost)
+    m_splitHandsClusterAct = new QAction(tr("C&lustering Based"), this);
+    m_splitHandsClusterAct->setToolTip(tr("Use local pitch clustering for fast virtual hand assignment"));
+    m_splitHandsClusterAct->setCheckable(true);
+    m_splitHandsClusterAct->setData(PB_SPLIT_HANDS_cluster);
+    m_splitHandsModeGroup->addAction(m_splitHandsClusterAct);
+    connect(m_splitHandsClusterAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
+
+    m_splitHandsVoicesAct = new QAction(tr("&Voice Separation"), this);
+    m_splitHandsVoicesAct->setToolTip(tr("Separate voices, then group voices into virtual hands"));
+    m_splitHandsVoicesAct->setCheckable(true);
+    m_splitHandsVoicesAct->setData(PB_SPLIT_HANDS_voices);
+    m_splitHandsModeGroup->addAction(m_splitHandsVoicesAct);
+    connect(m_splitHandsVoicesAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
+
+    if (CNote::splitHandsMode() == PB_SPLIT_HANDS_voices)
+        m_splitHandsVoicesAct->setChecked(true);
+    else if (CNote::splitHandsMode() == PB_SPLIT_HANDS_cluster)
+        m_splitHandsClusterAct->setChecked(true);
+    else if (CNote::splitHandsMode() == PB_SPLIT_HANDS_cost)
         m_splitHandsCostAct->setChecked(true);
     else
         m_splitHandsNaiveAct->setChecked(true);
@@ -464,6 +482,8 @@ void QtWindow::createMenus()
     m_splitHandsConfigMenu = m_songMenu->addMenu(tr("Split-Hand &Configuration"));
     m_splitHandsConfigMenu->addAction(m_splitHandsNaiveAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsCostAct);
+    m_splitHandsConfigMenu->addAction(m_splitHandsClusterAct);
+    m_splitHandsConfigMenu->addAction(m_splitHandsVoicesAct);
     m_songMenu->addSeparator();
     m_songMenu->addAction(m_songDetailsAct);
 
