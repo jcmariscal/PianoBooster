@@ -81,16 +81,37 @@ public:
     }
 
     static int rightHandTrack(int channel) { return m_rightHandTrack[channel]; }
+    static void clearSplitHandChannels();
+    static void setSplitHandChannel(int channel, bool enabled);
+    static bool isSplitHandChannel(int channel)
+    {
+        return channel >= 0 && channel < MAX_MIDI_CHANNELS && m_splitHandChannel[channel];
+    }
 
     static void setChannelHands(int left, int right);
     static void setActiveHand(whichPart_t hand){m_activeHand = hand;}
     static whichPart_t getActiveHand(){return m_activeHand;}
+    static void setSplitHands(bool enabled){m_splitHands = enabled;}
+    static bool splitHandsEnabled(){return m_splitHands;}
+    static bool splitHandsForChannel(int channel)
+    {
+        if (!m_splitHands)
+            return false;
+        if (channel < 0 || channel >= MAX_MIDI_CHANNELS)
+            return false;
+        return m_splitHandChannel[channel];
+    }
+    static int splitPointForPitches(const int *pitches, int count);
+    static whichPart_t splitHandForPitch(int midiNote, int splitPoint)
+    {
+        return (midiNote >= splitPoint) ? PB_PART_right : PB_PART_left;
+    }
 
     static int rightHandChan()       {return m_rightHandChannel;}
     static int leftHandChan()        {return m_leftHandChannel;}
     static int bothHandsChan()       {return m_leftHandChannel;}
     static int getHandChannel(whichPart_t whichPart)   { return (whichPart == PB_PART_right) ? m_rightHandChannel : m_leftHandChannel;}
-    static bool hasPianoPart(int chan)   { return (m_leftHandChannel == chan || m_rightHandChannel == chan ) ? true : false;}
+    static bool hasPianoPart(int chan)   { return (m_leftHandChannel == chan || m_rightHandChannel == chan || isSplitHandChannel(chan)) ? true : false;}
 
 private:
     whichPart_t m_part;
@@ -98,7 +119,9 @@ private:
     int m_duration;
     static int m_leftHandChannel;
     static int m_rightHandChannel;
+    static bool m_splitHands;
     static whichPart_t m_activeHand;
+    static bool m_splitHandChannel[MAX_MIDI_CHANNELS];
     // -1 means there is a single track and no separate left and right hand parts
     static int m_rightHandTrack[MAX_MIDI_CHANNELS];
 };
@@ -128,6 +151,7 @@ public:
     bool removeNote(int note);
     bool searchChord(int note, int transpose = 0);
     int trimOutOfRangeNotes(int transpose);
+    void applySplitHands();
 
     void transpose(int amount)
     {

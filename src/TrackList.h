@@ -138,15 +138,19 @@ private:
 class CTrackListItem
 {
 public:
-    CTrackListItem(int midiChannel) :
-    m_midiChannel(midiChannel)
+    CTrackListItem(int midiChannel, whichPart_t virtualPart = PB_PART_none) :
+    m_midiChannel(midiChannel),
+    m_virtualPart(virtualPart)
     {
     }
 
     int midiChannel() const {return m_midiChannel;}
+    whichPart_t virtualPart() const {return m_virtualPart;}
+    bool isVirtualSplitPart() const {return m_virtualPart == PB_PART_left || m_virtualPart == PB_PART_right;}
 
 private:
     int m_midiChannel;
+    whichPart_t m_virtualPart;
 };
 
 class CTrackList : public QObject
@@ -179,6 +183,7 @@ public:
     QStringList getAllChannelProgramNames(bool raw=false);
     int getActiveItemIndex();
     int getActiveHandIndex(whichPart_t whichPart);
+    whichPart_t handPartAt(int index) const;
 
     // set the midi channels to use for the left and right hand piano parts
     void setActiveHandsIndex(int leftIndex, int rightIndex);
@@ -200,6 +205,7 @@ public:
     }
 
 private:
+    QList<int> findSplittableChannels();
     QString getChannelProgramName(int chan);
 
     CSong* m_song;
@@ -207,6 +213,8 @@ private:
     QList<CTrackListItem> m_partsList;
     QVector<AnalyseItem> m_midiChannels;
     int m_noteFrequency[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES];
+    int m_splitHandsChannel;
+    int m_splitHandsChannelCount;
 
 };
 

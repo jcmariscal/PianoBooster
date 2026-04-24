@@ -95,6 +95,7 @@ void CConductor::reset()
         if (i >= MAX_MIDI_CHANNELS)
             mapTrack2Channel(i, -1);
     }
+    clearMutedSplitNotes();
 }
 
 //! add a midi event to be analysed and displayed on the score
@@ -136,6 +137,22 @@ void CConductor::allSoundOff()
     }
     m_savedNoteQueue->clear();
     m_savedNoteOffQueue->clear();
+    clearMutedSplitNotes();
+}
+
+void CConductor::clearMutedSplitNotes()
+{
+    for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++)
+        for (int note = 0; note < MAX_MIDI_NOTES; note++)
+            m_mutedSplitNotes[chan][note] = 0;
+}
+
+bool CConductor::usesSplitListenVolume(int chan) const
+{
+    return m_playMode == PB_PLAY_MODE_listen &&
+            chan >= 0 && chan < MAX_MIDI_CHANNELS &&
+            CNote::splitHandsForChannel(m_activeChannel) &&
+            CNote::splitHandsForChannel(chan);
 }
 
 void CConductor::resetAllChannels()
@@ -162,6 +179,15 @@ int CConductor::calcBoostVolume(int channel, int volume)
         m_savedMainVolume[channel] = volume;
 
     returnVolume = volume;
+    if (usesSplitListenVolume(channel))
+    {
+        if (m_pianoVolume>0)
+            returnVolume = (returnVolume * (100 - m_pianoVolume)) / 100;
+        if (returnVolume > 127)
+            returnVolume = 127;
+        return returnVolume;
+    }
+
     activePart = false;
     if (CNote::hasPianoPart(m_activeChannel))
     {
@@ -209,6 +235,71 @@ int CConductor::calcBoostVolume(int channel, int volume)
     if (returnVolume > 127)
         returnVolume = 127;
     return returnVolume;
+}
+
+int CConductor::calcSplitListenVelocity(const CMidiEvent& event)
+{
+    int velocity = event.velocity();
+    if (!usesSplitListenVolume(event.channel()) || velocity <= 0)
+        return velocity;
+
+    const whichPart_t eventHand = CNote::findHand(event, m_activeChannel, PB_PART_both);
+    if (eventHand == PB_PART_none)
+        return velocity;
+
+    const whichPart_t activeHand = CNote::getActiveHand();
+    const bool activePart = activeHand == PB_PART_both || activeHand == eventHand;
+    if (activePart)
+    {
+        if (m_boostVolume < 0)
+            velocity = (velocity * (m_boostVolume + 100)) / 100;
+        else
+            velocity += m_boostVolume;
+    }
+    else if (m_boostVolume > 0)
+    {
+        velocity = (velocity * (100 - m_boostVolume)) / 100;
+    }
+
+    if (velocity < 0)
+        velocity = 0;
+    if (velocity > 127)
+        velocity = 127;
+    return velocity;
+}
+
+bool CConductor::applySplitListenVolume(CMidiEvent& event)
+{
+    if (!usesSplitListenVolume(event.channel()))
+        return false;
+
+    const int note = event.note();
+    const int channel = event.channel();
+    if (note < 0 || note >= MAX_MIDI_NOTES)
+        return false;
+
+    if (event.type() == MIDI_NOTE_OFF)
+    {
+        if (m_mutedSplitNotes[channel][note] > 0)
+        {
+            m_mutedSplitNotes[channel][note]--;
+            return true;
+        }
+        return false;
+    }
+
+    if (event.type() != MIDI_NOTE_ON)
+        return false;
+
+    const int velocity = calcSplitListenVelocity(event);
+    if (velocity <= 0)
+    {
+        m_mutedSplitNotes[channel][note]++;
+        return true;
+    }
+
+    event.setVelocity(velocity);
+    return false;
 }
 
 /* send boost volume by adjusting all channels */
@@ -373,6 +464,9 @@ void CConductor::playTransposeEvent(CMidiEvent event)
     if (m_transpose != 0 && event.channel() != MIDI_DRUM_CHANNEL &&
                 (event.type() == MIDI_NOTE_ON || event.type() == MIDI_NOTE_OFF) )
         event.transpose(m_transpose);
+
+    if ((event.type() == MIDI_NOTE_ON || event.type() == MIDI_NOTE_OFF) && applySplitListenVolume(event))
+        return;
 
      if (event.type() == MIDI_NOTE_ON && CChord::isPianistNote(event, m_transpose, getActiveChannel()) && shouldMutePianistPart()) {
         return; // mute the note by not playing it
@@ -1062,6 +1156,7 @@ void CConductor::rewind()
     m_bar.rewind();
 
     m_goodPlayedNotes.clear();  // The good notes the pianist plays
+    clearMutedSplitNotes();
     if (m_piano)
         m_piano->clear();
     resetWantedChord();

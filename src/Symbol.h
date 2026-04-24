@@ -121,6 +121,12 @@ public:
     ////////////////////////////////////////////////////////////////////////////////
     //@brief returns the midi note number
     whichPart_t getHand(){return m_hand;}
+    void setHand(whichPart_t hand)
+    {
+        m_hand = hand;
+        if (m_symbolType >= PB_SYMBOL_noteHead)
+            m_stavePos.notePos(m_hand, m_midiNote);
+    }
 
     ////////////////////////////////////////////////////////////////////////////////
     //@brief get the Stave Position

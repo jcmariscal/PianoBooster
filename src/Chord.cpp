@@ -29,9 +29,13 @@
 #include "Chord.h"
 #include "Cfg.h"
 
+#include <algorithm>
+
 int CNote::m_leftHandChannel = -2;
 int CNote::m_rightHandChannel = -2;
 int CNote::m_rightHandTrack[MAX_MIDI_CHANNELS];
+bool CNote::m_splitHandChannel[MAX_MIDI_CHANNELS];
+bool CNote::m_splitHands = false;
 
 whichPart_t CNote::m_activeHand = PB_PART_both;
 
@@ -46,6 +50,7 @@ void CNote::reset()
     for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++) {
         m_rightHandTrack[chan]=-1;
     }
+    clearSplitHandChannels();
 }
 
 void CNote::setChannelHands(int left, int right)
@@ -54,6 +59,68 @@ void CNote::setChannelHands(int left, int right)
     m_rightHandChannel = right;
 }
 
+void CNote::clearSplitHandChannels()
+{
+    for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++)
+        m_splitHandChannel[chan] = false;
+}
+
+void CNote::setSplitHandChannel(int channel, bool enabled)
+{
+    if (channel < 0 || channel >= MAX_MIDI_CHANNELS)
+        return;
+    m_splitHandChannel[channel] = enabled;
+}
+
+int CNote::splitPointForPitches(const int *pitches, int count)
+{
+    if (pitches == nullptr || count <= 0)
+        return MIDDLE_C;
+
+    int sorted[MAX_MIDI_NOTES];
+    if (count > arraySize(sorted))
+        count = arraySize(sorted);
+
+    bool hasBelowMiddleC = false;
+    bool hasAtOrAboveMiddleC = false;
+    for (int i = 0; i < count; ++i)
+    {
+        sorted[i] = pitches[i];
+        if (pitches[i] < MIDDLE_C)
+            hasBelowMiddleC = true;
+        else
+            hasAtOrAboveMiddleC = true;
+    }
+
+    if (!hasBelowMiddleC || !hasAtOrAboveMiddleC)
+        return MIDDLE_C;
+
+    std::sort(sorted, sorted + count);
+
+    int bestSplitPoint = MIDDLE_C;
+    int bestScore = -1000000;
+    for (int i = 0; i + 1 < count; ++i)
+    {
+        if (sorted[i] == sorted[i + 1])
+            continue;
+
+        const int candidate = (sorted[i] + sorted[i + 1] + 1) / 2;
+        if (candidate < MIDDLE_C - MIDI_OCTAVE || candidate > MIDDLE_C + MIDI_OCTAVE)
+            continue;
+
+        const int gap = sorted[i + 1] - sorted[i];
+        const int distanceFromMiddleC = (candidate > MIDDLE_C) ? candidate - MIDDLE_C : MIDDLE_C - candidate;
+        const int score = gap * 4 - distanceFromMiddleC;
+
+        if (score > bestScore)
+        {
+            bestScore = score;
+            bestSplitPoint = candidate;
+        }
+    }
+
+    return bestSplitPoint;
+}
 
 whichPart_t CNote::findHand(CMidiEvent midi, int whichChannel, whichPart_t whichPart)
 {
@@ -64,13 +131,21 @@ whichPart_t CNote::findHand(CMidiEvent midi, int whichChannel, whichPart_t which
     if (midiChannel != whichChannel)
     {
         // return none if this is not being used with the other hand.
-        if (CNote::hasPianoPart(whichChannel) == false || CNote::hasPianoPart(midiChannel) == false)
+        if (!(CNote::splitHandsForChannel(whichChannel) && CNote::splitHandsForChannel(midiChannel)) &&
+                (CNote::hasPianoPart(whichChannel) == false || CNote::hasPianoPart(midiChannel) == false))
             return PB_PART_none;
     }
     int rightHandTrack = CNote::rightHandTrack(midiChannel);
 
-    if (midiChannel == whichChannel && rightHandTrack >= 0 ) {
+    const bool sameHandChannel = midiChannel == CNote::leftHandChan() &&
+            midiChannel == CNote::rightHandChan();
+
+    if (CNote::splitHandsForChannel(whichChannel) && CNote::splitHandsForChannel(midiChannel)) {
+        hand = CNote::splitHandForPitch(midiNote, MIDDLE_C);
+    } else if (midiChannel == whichChannel && rightHandTrack >= 0 ) {
         hand = (midi.track() == rightHandTrack) ? PB_PART_right : PB_PART_left ;
+    } else if (sameHandChannel) {
+        hand = CNote::splitHandForPitch(midiNote, MIDDLE_C);
     } else if (midiChannel == CNote::rightHandChan()) {
         hand  = PB_PART_right;
     } else if (midiChannel == CNote::leftHandChan()) {
@@ -98,6 +173,20 @@ void CChord::addNote(whichPart_t part, int note, int duration)
         return;
     m_notes[m_length] = CNote(part, note, duration);
     m_length++;
+}
+
+void CChord::applySplitHands()
+{
+    if (!CNote::splitHandsEnabled() || m_length == 0)
+        return;
+
+    int pitches[MAX_CHORD_NOTES];
+    for (int i = 0; i < m_length; ++i)
+        pitches[i] = m_notes[i].pitch();
+
+    const int splitPoint = CNote::splitPointForPitches(pitches, m_length);
+    for (int i = 0; i < m_length; ++i)
+        m_notes[i].setPart(CNote::splitHandForPitch(m_notes[i].pitch(), splitPoint));
 }
 
 
@@ -170,6 +259,8 @@ bool CFindChord::findChord(CMidiEvent midi, int channel, whichPart_t part)
     {
         if (m_currentChord.length() > 0)
         {
+            if (CNote::splitHandsForChannel(channel))
+                m_currentChord.applySplitHands();
             m_completeChord = m_currentChord;
             foundChord = true;
         }
@@ -182,6 +273,8 @@ bool CFindChord::findChord(CMidiEvent midi, int channel, whichPart_t part)
             && m_currentChord.length() > 0 )
     {
         foundChord = true;
+        if (CNote::splitHandsForChannel(channel))
+            m_currentChord.applySplitHands();
         m_completeChord = m_currentChord;
         m_currentChord.clear();
     }
@@ -202,4 +295,3 @@ bool CFindChord::findChord(CMidiEvent midi, int channel, whichPart_t part)
     }
     return foundChord;
 }
-

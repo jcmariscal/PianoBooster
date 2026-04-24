@@ -111,9 +111,11 @@ void GuiSidePanel::refresh() {
     if (m_trackList)
     {
         m_trackList->refresh();
+        bool wasBlocked = trackListWidget->blockSignals(true);
         trackListWidget->clear();
         trackListWidget->addItems(m_trackList->getAllChannelProgramNames());
         trackListWidget->setCurrentRow(m_trackList->getActiveItemIndex());
+        trackListWidget->blockSignals(wasBlocked);
         for (int i = 0; i < trackListWidget->count(); i++)
             m_trackList->changeListWidgetItemView(i, trackListWidget->item(i));
     }
@@ -312,4 +314,3 @@ void GuiSidePanel::on_rhythmTappingCombo_activated (int index)
     }
     autoSetMuteYourPart();
 }
-

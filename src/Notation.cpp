@@ -65,6 +65,30 @@ bool CSlot::addSymbol(CSymbol symbol)
     return true;
 }
 
+void CSlot::applySplitHands()
+{
+    if (!CNote::splitHandsEnabled() || m_length == 0)
+        return;
+
+    int pitches[MAX_SYMBOLS];
+    int noteCount = 0;
+    for (int i = 0; i < m_length; ++i)
+    {
+        if (m_symbols[i].getType() >= PB_SYMBOL_noteHead)
+            pitches[noteCount++] = m_symbols[i].getNote();
+    }
+
+    if (noteCount == 0)
+        return;
+
+    const int splitPoint = CNote::splitPointForPitches(pitches, noteCount);
+    for (int i = 0; i < m_length; ++i)
+    {
+        if (m_symbols[i].getType() >= PB_SYMBOL_noteHead)
+            m_symbols[i].setHand(CNote::splitHandForPitch(m_symbols[i].getNote(), splitPoint));
+    }
+}
+
 // find
 void CSlot::analyse()
 {
@@ -255,6 +279,8 @@ void CNotation::findNoteSlots()
             if (m_currentSlot.length() > 0)
             {
                 // the cord separator arrives very late so we are behind the times
+                if (CNote::splitHandsForChannel(m_displayChannel))
+                    m_currentSlot.applySplitHands();
                 m_currentSlot.analyse();
                 m_slotQueue->push(m_currentSlot);
                 m_currentSlot.clear();

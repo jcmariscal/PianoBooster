@@ -100,6 +100,9 @@ private slots:
     void on_trackListWidget_currentRowChanged(int currentRow) {
         if (m_trackList){
             m_trackList->currentRowChanged(currentRow);
+            whichPart_t hand = m_trackList->handPartAt(currentRow);
+            if (hand == PB_PART_right || hand == PB_PART_left)
+                setActiveHand(hand);
             autoSetMuteYourPart();
         }
     }

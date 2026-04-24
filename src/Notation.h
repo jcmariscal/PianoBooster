@@ -69,6 +69,7 @@ public:
 
     // return false on error
     bool addSymbol(CSymbol symbol);
+    void applySplitHands();
     void analyse();
 
     void setSymbol(qint64 delta, CSymbol symbol)
@@ -223,4 +224,3 @@ private:
 };
 
 #endif  // __NOTATION_H__
-

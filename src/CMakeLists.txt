@@ -74,7 +74,10 @@ endif()
 
 # Finds Qt libraries
 set(QT_PACKAGE_NAME Qt5 CACHE STRING "Name of the Qt package to use, set e.g. to \"Qt6\" to use Qt 6")
-set(QT_COMPONENTS Core Gui Widgets LinguistTools OpenGL Xml)
+set(QT_COMPONENTS Core Gui Widgets OpenGL Xml)
+if(NOT NO_LANGS)
+    list(APPEND QT_COMPONENTS LinguistTools)
+endif()
 set(QT_LIBS ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Gui ${QT_PACKAGE_NAME}::Widgets ${QT_PACKAGE_NAME}::Xml ${QT_PACKAGE_NAME}::OpenGL)
 if (QT_PACKAGE_NAME STREQUAL Qt6)
     list(APPEND QT_COMPONENTS OpenGLWidgets Core5Compat)
@@ -374,4 +377,3 @@ if (TREAT_WARNINGS_AS_ERRORS)
 endif ()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../music/BoosterMusicBooks.zip ${CMAKE_CURRENT_BINARY_DIR}/ COPYONLY)
-

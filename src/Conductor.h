@@ -246,6 +246,10 @@ private:
     void missedNotesColor(CColor color);
 
     int calcBoostVolume(int chan, int volume);
+    int calcSplitListenVelocity(const CMidiEvent& event);
+    bool applySplitListenVolume(CMidiEvent& event);
+    bool usesSplitListenVolume(int chan) const;
+    void clearMutedSplitNotes();
 
     void addDeltaTime(qint64 ticks);
     void turnOnKeyboardLights(bool on);
@@ -307,6 +311,7 @@ private:
     int m_pianoVolume;
     int m_activeChannel; // The current part that is being displayed (used for boost)
     int m_savedMainVolume[MAX_MIDI_CHANNELS];
+    int m_mutedSplitNotes[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES];
     static playMode_t m_playMode;
     int m_skill;
     bool m_mutePianistPart;

@@ -167,6 +167,7 @@ private slots:
     void on_previousSong()   {  m_sidePanel->nextSong(-1); }
     void on_nextBook()   {  m_sidePanel->nextBook(+1); }
     void on_previousBook()   {  m_sidePanel->nextBook(-1); }
+    void on_splitHands(bool checked);
 
 protected:
     void closeEvent(QCloseEvent *event);
@@ -217,6 +218,7 @@ private:
     QAction *m_fullScreenStateAct;
     QAction *m_setupPreferencesAct;
     QAction *m_songDetailsAct;
+    QAction *m_splitHandsAct;
 
     QMenu *m_fileMenu;
     QMenu *m_viewMenu;

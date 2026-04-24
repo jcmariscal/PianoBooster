@@ -63,6 +63,7 @@ QtWindow::QtWindow()
     setWindowTitle(tr("Piano Booster"));
 
     Cfg::setDefaults();
+    CNote::setSplitHands(m_settings->value("Song/SplitHands", false).toBool());
 
     decodeCommandLine();
 
@@ -380,6 +381,12 @@ void QtWindow::createActions()
     m_songDetailsAct->setShortcut(tr("Ctrl+D"));
     connect(m_songDetailsAct, SIGNAL(triggered()), this, SLOT(showSongDetailsDialog()));
 
+    m_splitHandsAct = new QAction(tr("Split &Hands"), this);
+    m_splitHandsAct->setToolTip(tr("Split a single piano part into left and right hands without changing the MIDI file"));
+    m_splitHandsAct->setCheckable(true);
+    m_splitHandsAct->setChecked(CNote::splitHandsEnabled());
+    connect(m_splitHandsAct, SIGNAL(toggled(bool)), this, SLOT(on_splitHands(bool)));
+
     QAction* act = new QAction(this);
     act->setShortcut(tr("Shift+F1"));
     connect(act, SIGNAL(triggered()), this, SLOT(enableFollowTempo()));
@@ -430,6 +437,8 @@ void QtWindow::createMenus()
 
     m_songMenu = menuBar()->addMenu(tr("&Song"));
     m_songMenu->setToolTipsVisible(true);
+    m_songMenu->addAction(m_splitHandsAct);
+    m_songMenu->addSeparator();
     m_songMenu->addAction(m_songDetailsAct);
 
     m_setupMenu = menuBar()->addMenu(tr("Set&up"));
@@ -473,6 +482,26 @@ void QtWindow::showMidiSetup(){
     midiSetupDialog.exec();
     m_song->flushMidiInput();
     m_glWidget->startTimerEvent();
+}
+
+void QtWindow::on_splitHands(bool checked)
+{
+    CNote::setSplitHands(checked);
+    m_settings->setValue("Song/SplitHands", checked);
+
+    const QString songFile = m_settings->getCurrentSongLongFileName();
+    if (songFile.isEmpty() || !QFile::exists(songFile))
+        return;
+
+    if (m_song->playingMusic())
+    {
+        m_song->playMusic(false);
+        m_topBar->setPlayButtonState(false);
+    }
+
+    m_song->rewind();
+    m_sidePanel->refresh();
+    m_song->forceScoreRedraw();
 }
 
 // load the recent file list from the config file into the file menu

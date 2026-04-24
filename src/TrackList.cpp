@@ -42,6 +42,8 @@ void CTrackList::reset(int numberOfTracks)
 {
     m_partsList.clear();
     m_midiChannels.clear();
+    m_splitHandsChannel = -1;
+    m_splitHandsChannelCount = 0;
     for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++) {
         for (int i = 0; i < MAX_MIDI_NOTES; i++) {
             m_noteFrequency[chan][i]=0;
@@ -57,6 +59,38 @@ void CTrackList::currentRowChanged(int currentRow)
         return;
 
     m_song->setActiveChannel(m_partsList[currentRow].midiChannel());
+}
+
+QList<int> CTrackList::findSplittableChannels()
+{
+    QList<int> channels;
+    if (!CNote::splitHandsEnabled())
+        return channels;
+
+    QList<int> activeNonDrumChannels;
+    QList<int> pianoChannels;
+    for (int chan = 0 ; chan < MAX_MIDI_CHANNELS; chan++)
+    {
+        if (chan == MIDI_DRUM_CHANNEL || !m_midiChannels[chan].active())
+            continue;
+
+        activeNonDrumChannels.append(chan);
+        if (isPianoOrOrganPatch(m_midiChannels[chan].firstPatch()))
+            pianoChannels.append(chan);
+    }
+
+    if (activeNonDrumChannels.count() == 1)
+    {
+        const int chan = activeNonDrumChannels.first();
+        if (m_midiChannels[chan].trackCount() != 2)
+            channels.append(chan);
+        return channels;
+    }
+
+    if (activeNonDrumChannels.count() > 2 && pianoChannels.count() == activeNonDrumChannels.count())
+        return pianoChannels;
+
+    return channels;
 }
 
 void CTrackList::examineMidiEvent(CMidiEvent event)
@@ -225,19 +259,44 @@ int CTrackList::findFreeChannel(int startChannel)
 
 void CTrackList::refresh()
 {
-    int rowCount = 0;
+    if (m_splitHandsChannel >= 0 &&
+            CNote::leftHandChan() == m_splitHandsChannel &&
+            CNote::rightHandChan() == m_splitHandsChannel)
+        CNote::setChannelHands(-2, -2);
+
+    CNote::clearSplitHandChannels();
+    m_splitHandsChannel = -1;
+    m_splitHandsChannelCount = 0;
     m_partsList.clear();
 
-    for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++)
+    for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++) {
+        AnalyseItem item = m_midiChannels[chan];
+        CNote::setRightHandTrack(chan, item.rightHandTrack());
+    }
+
+    QList<int> splitHandsChannels = findSplittableChannels();
+    if (splitHandsChannels.count() > 0)
     {
-        if (m_midiChannels[chan].active())
+        m_splitHandsChannel = splitHandsChannels.first();
+        m_splitHandsChannelCount = splitHandsChannels.count();
+        CNote::setChannelHands(m_splitHandsChannel, m_splitHandsChannel);
+        for (int i = 0; i < splitHandsChannels.count(); ++i)
+            CNote::setSplitHandChannel(splitHandsChannels.at(i), true);
+        m_partsList.append(CTrackListItem(m_splitHandsChannel, PB_PART_right));
+        m_partsList.append(CTrackListItem(m_splitHandsChannel, PB_PART_left));
+    }
+    else
+    {
+        for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++)
         {
-            m_partsList.append(CTrackListItem(chan));
-            rowCount++;
+            if (m_midiChannels[chan].active())
+                m_partsList.append(CTrackListItem(chan));
         }
     }
 
-    if (CNote::bothHandsChan() != -2   ) { // -2 for not set -1 for not used
+    if (m_splitHandsChannel >= 0) {
+        m_song->setActiveChannel(m_splitHandsChannel);
+    } else if (CNote::bothHandsChan() != -2   ) { // -2 for not set -1 for not used
         m_song->setActiveChannel(CNote::bothHandsChan());
     } else if (pianoPartConvetionTest()) {
         m_song->setActiveChannel(CNote::bothHandsChan());
@@ -284,15 +343,18 @@ void CTrackList::refresh()
     ppLogInfo("Using Pianist Channels %d + %d", goodChan +1, badChan +1);
     if (Cfg::keyboardLightsChan != -1 && spareChan != -1)
         m_song->mapTrack2Channel(Cfg::keyboardLightsChan,  spareChan);
-    for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++) {
-        AnalyseItem item  = m_midiChannels[chan];
-        CNote::setRightHandTrack(chan, item.rightHandTrack());
-    }
 }
 
 int CTrackList::getActiveItemIndex()
 {
     int chan;
+    whichPart_t activeHand = CNote::getActiveHand();
+    for (int i = 0; i < m_partsList.size(); ++i)
+    {
+        if (m_partsList[i].isVirtualSplitPart() && m_partsList[i].virtualPart() == activeHand)
+            return i;
+    }
+
     for (int i = 0; i < m_partsList.size(); ++i)
     {
         chan = m_partsList[i].midiChannel();
@@ -313,7 +375,17 @@ QStringList CTrackList::getAllChannelProgramNames(bool raw)
     {
         hand.clear();
         chan = m_partsList[i].midiChannel();
-        if (raw == false)
+        if (m_partsList[i].isVirtualSplitPart())
+        {
+            hand = (m_partsList[i].virtualPart() == PB_PART_right) ? QObject::tr("R") : QObject::tr("L");
+            if (m_splitHandsChannelCount > 1)
+            {
+                text = QObject::tr("Split ") + hand + " (" + QString::number(m_splitHandsChannelCount) + QObject::tr(" parts)");
+                items += text;
+                continue;
+            }
+        }
+        else if (raw == false)
         {
             if (CNote::leftHandChan() == chan)
                 hand += QObject::tr("L");
@@ -328,12 +400,23 @@ QStringList CTrackList::getAllChannelProgramNames(bool raw)
 
 int CTrackList::getActiveHandIndex(whichPart_t whichPart)
 {
-    int index = 0;
-     for (int i = 0; i < m_partsList.size(); ++i)
+    for (int i = 0; i < m_partsList.size(); ++i)
+    {
+        if (m_partsList[i].isVirtualSplitPart() && m_partsList[i].virtualPart() == whichPart)
+            return i;
         if (m_partsList[i].midiChannel() == CNote::getHandChannel( whichPart))
-            return index;
+            return i;
+    }
 
-    return index;
+    return 0;
+}
+
+whichPart_t CTrackList::handPartAt(int index) const
+{
+    if (index < 0 || index >= m_partsList.size())
+        return PB_PART_none;
+
+    return m_partsList[index].virtualPart();
 }
 
 void CTrackList::setActiveHandsIndex(int leftIndex, int rightIndex)
@@ -357,6 +440,8 @@ int CTrackList::getHandTrackIndex(whichPart_t whichPart)
     int midiHand = CNote::getHandChannel(whichPart);
     for (int i = 0; i < m_partsList.size(); ++i)
     {
+        if (m_partsList[i].isVirtualSplitPart() && m_partsList[i].virtualPart() == whichPart)
+            return index;
 
         if (m_partsList[i].midiChannel() == midiHand)
             return index;
@@ -368,11 +453,12 @@ int CTrackList::getHandTrackIndex(whichPart_t whichPart)
 
 void CTrackList::changeListWidgetItemView( int index, QListWidgetItem* listWidgetItem )
 {
-    int chan = m_partsList[index].midiChannel();
+    const CTrackListItem item = m_partsList[index];
+    int chan = item.midiChannel();
     if ( CNote::hasPianoPart( chan ))
     {
         QFont font = listWidgetItem->font();
-        if (CNote::rightHandChan() >= 0 && CNote::leftHandChan() >= 0 )
+        if (item.isVirtualSplitPart() || (CNote::rightHandChan() >= 0 && CNote::leftHandChan() >= 0 ))
             font.setBold(true);
         listWidgetItem->setFont(font);
         listWidgetItem->setForeground(Qt::darkBlue);
