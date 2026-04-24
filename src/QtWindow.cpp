@@ -27,6 +27,7 @@
 #include "GlView.h"
 #include "QtWindow.h"
 #include "version.h"
+#include "Draw.h"
 
 #include <QDebug>
 #include <QSurfaceFormat>
@@ -63,6 +64,7 @@ QtWindow::QtWindow()
     setWindowTitle(tr("Piano Booster"));
 
     Cfg::setDefaults();
+    Cfg::setTheme(m_settings->value("View/Theme", PB_THEME_sepiaPaper).toInt());
     CNote::setSplitHands(m_settings->value("Song/SplitHands", false).toBool());
     CNote::setSplitHandsMode(static_cast<splitHandsMode_t>(
         m_settings->value("Song/SplitHandsMode", PB_SPLIT_HANDS_naive).toInt()));
@@ -373,6 +375,35 @@ void QtWindow::createActions()
     }
     connect(m_viewPianoKeyboard, SIGNAL(triggered()), this, SLOT(onViewPianoKeyboard()));
 
+    m_themeGroup = new QActionGroup(this);
+    m_themeGroup->setExclusive(true);
+    connect(m_themeGroup, SIGNAL(triggered(QAction*)), this, SLOT(onTheme(QAction*)));
+
+    m_themeSepiaPaperAct = new QAction(tr("&Sepia Paper"), this);
+    m_themeSepiaPaperAct->setToolTip(tr("Light sepia paper with dark ink"));
+    m_themeSepiaPaperAct->setCheckable(true);
+    m_themeSepiaPaperAct->setData(PB_THEME_sepiaPaper);
+    m_themeGroup->addAction(m_themeSepiaPaperAct);
+
+    m_themeWhitePaperAct = new QAction(tr("&White Paper"), this);
+    m_themeWhitePaperAct->setToolTip(tr("White paper with black notation"));
+    m_themeWhitePaperAct->setCheckable(true);
+    m_themeWhitePaperAct->setData(PB_THEME_whitePaper);
+    m_themeGroup->addAction(m_themeWhitePaperAct);
+
+    m_themeClassicDarkAct = new QAction(tr("&Classic Dark"), this);
+    m_themeClassicDarkAct->setToolTip(tr("Original black background with green notation"));
+    m_themeClassicDarkAct->setCheckable(true);
+    m_themeClassicDarkAct->setData(PB_THEME_classicDark);
+    m_themeGroup->addAction(m_themeClassicDarkAct);
+
+    if (Cfg::theme() == PB_THEME_classicDark)
+        m_themeClassicDarkAct->setChecked(true);
+    else if (Cfg::theme() == PB_THEME_whitePaper)
+        m_themeWhitePaperAct->setChecked(true);
+    else
+        m_themeSepiaPaperAct->setChecked(true);
+
     m_setupPreferencesAct = new QAction(tr("&Preferences ..."), this);
     m_setupPreferencesAct->setToolTip(tr("Settings"));
     m_setupPreferencesAct->setShortcut(tr("Ctrl+P"));
@@ -475,6 +506,10 @@ void QtWindow::createMenus()
     m_viewMenu->addAction(m_sidePanelStateAct);
     m_viewMenu->addAction(m_fullScreenStateAct);
     m_viewMenu->addAction(m_viewPianoKeyboard);
+    m_themeMenu = m_viewMenu->addMenu(tr("&Theme"));
+    m_themeMenu->addAction(m_themeSepiaPaperAct);
+    m_themeMenu->addAction(m_themeWhitePaperAct);
+    m_themeMenu->addAction(m_themeClassicDarkAct);
 
     m_songMenu = menuBar()->addMenu(tr("&Song"));
     m_songMenu->setToolTipsVisible(true);
@@ -572,6 +607,19 @@ void QtWindow::on_splitHandsMode()
     m_song->rewind();
     m_sidePanel->refresh();
     m_song->forceScoreRedraw();
+}
+
+void QtWindow::onTheme(QAction *action)
+{
+    if (!action)
+        return;
+
+    Cfg::setTheme(action->data().toInt());
+    m_settings->setValue("View/Theme", Cfg::theme());
+    CDraw::forceCompileRedraw();
+    m_score->refreshScroll();
+    m_song->forceScoreRedraw();
+    m_glWidget->update();
 }
 
 // load the recent file list from the config file into the file menu

@@ -58,13 +58,19 @@ public:
     }
     float red, green, blue;
 
-    bool operator==(CColor color)
+    bool operator==(CColor color) const
     {
         if (red == color.red && green == color.green && blue == color.blue)
             return true;
         return false;
     }
 };
+
+typedef enum {
+    PB_THEME_sepiaPaper,
+    PB_THEME_whitePaper,
+    PB_THEME_classicDark
+} theme_t;
 
 /*!
  * @brief   Contains all the configuration Information.
@@ -89,23 +95,37 @@ public:
     static int chordNoteGap()      {return 10;} // all notes in a cord must be spaced less than this a gap
     static int chordMaxLength()    {return 20;} // the max time between the start and end of a cord
 
+    static void setTheme(int theme)
+    {
+        if (theme < PB_THEME_sepiaPaper || theme > PB_THEME_classicDark)
+            theme = PB_THEME_sepiaPaper;
+        m_theme = theme;
+    }
+    static int theme() {return m_theme;}
+
     static CColor menuColor()        {return CColor(0.1, 0.6, 0.6);}
     static CColor menuSelectedColor(){return CColor(0.7, 0.7, 0.1);}
 
-    static CColor staveColor()           {return CColor(0.1, 0.7, 0.1);} // green
-    static CColor staveColorDim()        {return CColor(0.15, 0.40, 0.15);} // grey
-    static CColor noteColor()            {return CColor(0.1, 0.9, 0.1);} // green
-    static CColor noteColorDim()         {return CColor(0.25, 0.45, 0.25);} // green
-    //static CColor playedGoodColor()    {return CColor(0.6, 0.6, 1.0);} // grey
-    static CColor playedGoodColor()      {return CColor(0.5, 0.6, 1.0);} // purple 0.6, 0.6, 1.0
-    static CColor playedBadColor()       {return CColor(0.8, 0.3, 0.8);} // orange 0.7, 0.0, 0.0
-    static CColor playedStoppedColor()   {return CColor(1.0, 0.8, 0.0);} // bright orange
-    static CColor backgroundColor()      {return CColor(0.0, 0.0, 0.0);} // black
-    static CColor barMarkerColor()       {return CColor(0.3, 0.25, 0.25);} // grey
-    static CColor beatMarkerColor()      {return CColor(0.25, 0.2, 0.2);} // grey
-    static CColor pianoGoodColor()      {return playedGoodColor();}
-    static CColor pianoBadColor()       {return CColor(1.0, 0.0, 0.0);}
-    static CColor noteNameColor()       {return CColor(1.0, 1.0, 1.0);}
+    static CColor staveColor()           {return themeColor(0);}
+    static CColor staveColorDim()        {return themeColor(1);}
+    static CColor noteColor()            {return themeColor(2);}
+    static CColor noteColorDim()         {return themeColor(3);}
+    static CColor playedGoodColor()      {return themeColor(4);}
+    static CColor playedBadColor()       {return themeColor(5);}
+    static CColor playedStoppedColor()   {return themeColor(6);}
+    static CColor backgroundColor()      {return themeColor(7);}
+    static CColor barMarkerColor()       {return themeColor(8);}
+    static CColor beatMarkerColor()      {return themeColor(9);}
+    static CColor pianoGoodColor()       {return playedGoodColor();}
+    static CColor pianoBadColor()        {return themeColor(10);}
+    static CColor noteNameColor()        {return themeColor(11);}
+    static CColor textColor()            {return themeColor(12);}
+    static CColor warningTextColor()     {return themeColor(13);}
+    static CColor accuracyBorderColor()  {return themeColor(14);}
+    static CColor playZoneFillColor()    {return themeColor(15);}
+    static CColor playZoneCenterColor()  {return themeColor(16);}
+    static CColor playZoneEdgeColor()    {return themeColor(17);}
+    static CColor currentThemeColor(CColor color);
 
     static void setDefaults() {
     #ifdef _WIN32
@@ -144,6 +164,9 @@ public:
     static int keyboardLightsChan;
 
 private:
+    static CColor themeColor(int role);
+    static bool matchesThemeColor(int role, CColor color);
+    static int m_theme;
     static float m_staveEndX;
     static int m_appX, m_appY, m_appWidth, m_appHeight;
     static const int m_playZoneEarly;

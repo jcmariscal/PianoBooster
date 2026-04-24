@@ -170,6 +170,7 @@ private slots:
     void on_previousBook()   {  m_sidePanel->nextBook(-1); }
     void on_splitHands(bool checked);
     void on_splitHandsMode();
+    void onTheme(QAction *action);
 
 protected:
     void closeEvent(QCloseEvent *event);
@@ -217,6 +218,10 @@ private:
     QAction *m_setupKeyboardAct;
     QAction *m_sidePanelStateAct;
     QAction *m_viewPianoKeyboard;
+    QAction *m_themeSepiaPaperAct;
+    QAction *m_themeWhitePaperAct;
+    QAction *m_themeClassicDarkAct;
+    QActionGroup *m_themeGroup;
     QAction *m_fullScreenStateAct;
     QAction *m_setupPreferencesAct;
     QAction *m_songDetailsAct;
@@ -229,6 +234,7 @@ private:
 
     QMenu *m_fileMenu;
     QMenu *m_viewMenu;
+    QMenu *m_themeMenu;
     QMenu *m_songMenu;
     QMenu *m_splitHandsConfigMenu;
     QMenu *m_setupMenu;

@@ -471,7 +471,7 @@ bool CDraw::drawNote(CSymbol* symbol, float x, float y, CSlot* slot, CColor colo
 
 void CDraw::drawSymbol(CSymbol symbol, float x, float y, CSlot* slot)
 {
-    CColor color = symbol.getColor();
+    CColor color = Cfg::currentThemeColor(symbol.getColor());
     bool playable = true;
 
     if (m_displayHand != symbol.getHand() && m_displayHand != PB_PART_both)
@@ -772,14 +772,13 @@ void CDraw::drawSymbol(CSymbol symbol, float x, float y, CSlot* slot)
                 float bottomY = CStavePos(PB_PART_left, -m_beatMarkerHeight).getPosY();
                 float early = static_cast<float>(Cfg::playZoneEarly()) * HORIZONTAL_SPACING_FACTOR;
                 float late = static_cast<float>(Cfg::playZoneLate()) * HORIZONTAL_SPACING_FACTOR;
-                //glColor3f (0.7f, 1.0f, 0.7f);
-                glColor3f (0.0f, 0.0f, 0.3f);
+                drColor(Cfg::playZoneFillColor());
                 glRectf(x-late, topY, x + early, bottomY);
                 glLineWidth (2.0f);
-                glColor3f (0.0f, 0.0f, 0.8f);
+                drColor(Cfg::playZoneCenterColor());
                 oneLine(x, topY, x, bottomY );
                 glLineWidth (1.0f);
-                glColor3f (0.0f, 0.0f, 0.6f);
+                drColor(Cfg::playZoneEdgeColor());
                 oneLine(x-late, topY, x-late, bottomY );
                 oneLine(x+early, topY, x+early, bottomY );
             }
@@ -800,7 +799,7 @@ void CDraw::drawSymbol(CSymbol symbol, float x, float y, CSlot* slot)
         {
             auto pianistX = static_cast<float>(symbol.getPianistTiming());
             pianistX =  x + pianistX * HORIZONTAL_SPACING_FACTOR;
-            drColor(CColor(1.0, 1.0, 1.0));
+            drColor(Cfg::textColor());
             glLineWidth (2.0f);
             glBegin(GL_LINES);
             glVertex2f( 4.0f + pianistX, 4.0f + y);
