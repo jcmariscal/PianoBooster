@@ -71,6 +71,9 @@ private:
     void drawTimeSignature();
     void drawAccurracyBar();
     void drawBarNumber();
+    void configureOpenGl();
+    void drawBackgroundSurface();
+    void setTextFonts();
     void updateMidiTask();
 
     QString accuracyText;

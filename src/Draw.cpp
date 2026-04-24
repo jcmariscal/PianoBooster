@@ -31,11 +31,139 @@
 #include "Settings.h"
 #include "Notation.h"
 
+#include <cmath>
+
 typedef unsigned int guint;
 typedef unsigned char guint8;
 
 whichPart_t CDraw::m_displayHand;
 int CDraw::m_forceCompileRedraw;
+
+namespace {
+constexpr float NoteHeadRotation = -18.0f;
+constexpr float Pi = 3.14159265358979323846f;
+
+CColor learningPitchColor(int midiNote)
+{
+    static const CColor palette[] = {
+        CColor(0.86, 0.20, 0.18), CColor(0.90, 0.36, 0.18),
+        CColor(0.90, 0.55, 0.20), CColor(0.88, 0.70, 0.24),
+        CColor(0.70, 0.72, 0.26), CColor(0.30, 0.63, 0.35),
+        CColor(0.20, 0.60, 0.55), CColor(0.18, 0.46, 0.76),
+        CColor(0.32, 0.40, 0.78), CColor(0.48, 0.34, 0.72),
+        CColor(0.64, 0.30, 0.62), CColor(0.74, 0.28, 0.42)
+    };
+    const int index = ((midiNote % MIDI_OCTAVE) + MIDI_OCTAVE) % MIDI_OCTAVE;
+    return palette[index];
+}
+
+void drawNoteHeadShape(float x, float y, bool filled)
+{
+    glPushMatrix();
+    glTranslatef(x, y, 0.0f);
+    glRotatef(NoteHeadRotation, 0.0f, 0.0f, 1.0f);
+    if (!filled)
+        glLineWidth(2.0f);
+    glBegin(filled ? GL_POLYGON : GL_LINE_LOOP);
+    for (int i = 0; i < 32; ++i) {
+        const float angle = Pi * 2.0f * static_cast<float>(i) / 32.0f;
+        glVertex2f(std::cos(angle) * 8.3f, std::sin(angle) * 5.7f);
+    }
+    glEnd();
+    glPopMatrix();
+}
+
+void drawStem(float x, float y, float noteWidth, float stemLength)
+{
+    glLineWidth(1.8f);
+    glBegin(GL_LINE_STRIP);
+    glVertex2f(noteWidth + x, 1.0f + y);
+    glVertex2f(noteWidth + x, stemLength + y);
+    glEnd();
+}
+
+void drawStemFlags(float x, float y, float noteWidth, int count)
+{
+    float offset = 34.0f;
+    while (count > 0) {
+        glLineWidth(1.8f);
+        glBegin(GL_LINE_STRIP);
+        glVertex2f(noteWidth + x, offset + y);
+        glVertex2f(noteWidth + 8.5f + x, offset - 15.0f + y);
+        glEnd();
+        offset -= 8.0f;
+        count--;
+    }
+}
+
+void drawVerticalBand(float x1, float x2, float topY, float bottomY, float alpha)
+{
+    CDraw::drColorAlpha(Cfg::playZoneFillColor(), alpha);
+    glRectf(x1, topY, x2, bottomY);
+}
+
+#ifdef NO_USE_FTGL
+enum NumberSegment
+{
+    NumberTop = 0,
+    NumberUpperLeft,
+    NumberUpperRight,
+    NumberMiddle,
+    NumberLowerLeft,
+    NumberLowerRight,
+    NumberBottom
+};
+
+void drawNumberLine(float x, float y, float x1, float y1, float x2, float y2)
+{
+    glVertex2f(x + x1, y + y1);
+    glVertex2f(x + x2, y + y2);
+}
+
+int numberSegmentMask(int number)
+{
+    static const int masks[] = {
+        0,
+        (1 << NumberUpperRight) | (1 << NumberLowerRight),
+        (1 << NumberTop) | (1 << NumberUpperRight) | (1 << NumberMiddle) |
+            (1 << NumberLowerLeft) | (1 << NumberBottom),
+        (1 << NumberTop) | (1 << NumberUpperRight) | (1 << NumberMiddle) |
+            (1 << NumberLowerRight) | (1 << NumberBottom),
+        (1 << NumberUpperLeft) | (1 << NumberUpperRight) | (1 << NumberMiddle) |
+            (1 << NumberLowerRight),
+        (1 << NumberTop) | (1 << NumberUpperLeft) | (1 << NumberMiddle) |
+            (1 << NumberLowerRight) | (1 << NumberBottom),
+        (1 << NumberTop) | (1 << NumberUpperLeft) | (1 << NumberMiddle) |
+            (1 << NumberLowerLeft) | (1 << NumberLowerRight) | (1 << NumberBottom),
+        (1 << NumberTop) | (1 << NumberUpperRight) | (1 << NumberLowerRight)
+    };
+    return (number >= 1 && number <= 7) ? masks[number] : 0;
+}
+
+void drawNumberSegment(float x, float y, int segment)
+{
+    switch (segment) {
+    case NumberTop: drawNumberLine(x, y, -3.4f, 5.2f, 3.4f, 5.2f); break;
+    case NumberUpperLeft: drawNumberLine(x, y, -3.6f, 5.0f, -3.6f, 0.2f); break;
+    case NumberUpperRight: drawNumberLine(x, y, 3.6f, 5.0f, 3.6f, 0.2f); break;
+    case NumberMiddle: drawNumberLine(x, y, -3.2f, 0.0f, 3.2f, 0.0f); break;
+    case NumberLowerLeft: drawNumberLine(x, y, -3.6f, -0.2f, -3.6f, -5.0f); break;
+    case NumberLowerRight: drawNumberLine(x, y, 3.6f, -0.2f, 3.6f, -5.0f); break;
+    case NumberBottom: drawNumberLine(x, y, -3.4f, -5.2f, 3.4f, -5.2f); break;
+    }
+}
+
+void drawScaleDegreeNumber(int number, float x, float y)
+{
+    const int mask = numberSegmentMask(number);
+    glBegin(GL_LINES);
+    for (int segment = NumberTop; segment <= NumberBottom; ++segment)
+        if ((mask & (1 << segment)) != 0)
+            drawNumberSegment(x, y, segment);
+    glEnd();
+}
+#endif
+}
 
 CDraw::CDraw(CSettings* settings)
 #ifndef NO_USE_FTGL
@@ -126,6 +254,29 @@ void CDraw::renderText(float x, float y, const char* s)
 }
 #endif
 
+QString noteLabelText(CSettings *settings, int midiNote, staveLookup_t item)
+{
+    if (settings != nullptr && settings->showNoteNumbers())
+        return QString::number(CStavePos::midiNote2ScaleDegree(midiNote));
+
+    const QChar flat = QChar(0x266D);
+    const QChar natural = QChar(0x266E);
+    const QChar sharp = QChar(0x266F);
+    const QString names[7] = {
+        QObject::tr("C"), QObject::tr("D"), QObject::tr("E"), QObject::tr("F"),
+        QObject::tr("G"), QObject::tr("A"), QObject::tr("B")
+    };
+
+    QString accidental;
+    if (item.accidental == -1)
+        accidental = QString(flat);
+    else if (item.accidental == 1)
+        accidental = QString(sharp);
+    else if (item.accidental == 2)
+        accidental = QString(natural);
+    return names[item.pianoNote - 1] + accidental;
+}
+
 void CDraw::drawNoteName(int midiNote, float x, float y, int type)
 {
     Q_UNUSED(type)
@@ -140,6 +291,12 @@ void CDraw::drawNoteName(int midiNote, float x, float y, int type)
     glLineWidth (1.0);
 
 #ifdef NO_USE_FTGL
+    if (m_settings != nullptr && m_settings->showNoteNumbers())
+    {
+        drawScaleDegreeNumber(CStavePos::midiNote2ScaleDegree(midiNote), x, y);
+        return;
+    }
+
     if (item.accidental != 0)
       {
           const float accidentalOffset = 10;
@@ -166,7 +323,7 @@ void CDraw::drawNoteName(int midiNote, float x, float y, int type)
                   scaleGlVertex( -2.52933f, x,   6.25291f, y);  //  1
                   scaleGlVertex( -2.50344f, x,   -6.25291f, y);  //  2
                   scaleGlVertex( 0.76991f, x,   -3.63422f, y);  //  3
-                  scaleGlVertex( 2.07925ff, x,   -1.67021f, y);  //  4
+                  scaleGlVertex( 2.07925f, x,   -1.67021f, y);  //  4
                   scaleGlVertex( 2.52933f, x,   0.25288f, y);  //  5
                   scaleGlVertex( 1.42458f, x,   1.07122f, y);  //  6
                   scaleGlVertex( -0.53943f, x,   0.90755f, y);  //  7
@@ -225,7 +382,7 @@ void CDraw::drawNoteName(int midiNote, float x, float y, int type)
           glBegin(GL_LINE_STRIP);
               //  letterF2
               scaleGlVertex( -2.55172f, x,   -4.434285f, y);  //  1
-              scaleGlVertex( -2.51956f, x,   4.433665ff, y);  //  2
+              scaleGlVertex( -2.51956f, x,   4.433665f, y);  //  2
               scaleGlVertex( 2.39942f, x,   4.434285f, y);  //  3
           glEnd();
           glBegin(GL_LINES);
@@ -300,36 +457,9 @@ void CDraw::drawNoteName(int midiNote, float x, float y, int type)
       break;
       }
 #else
-    const QChar flat = QChar(0x266D);
-    const QChar natural = QChar(0x266E);
-    const QChar sharp = QChar(0x266F);
-    const QString n[7] =
-     {
-      tr("C"),
-      tr("D"),
-      tr("E"),
-      tr("F"),
-      tr("G"),
-      tr("A"),
-      tr("B")
-     };
-
     if(0<item.pianoNote && item.pianoNote < 8)
      {
-      QString accident = QString("");
-      switch(item.accidental)
-       {
-        case -1:
-          accident = QString(flat);
-          break;
-        case 1:
-          accident = QString(sharp);
-          break;
-        case 2:
-          accident = QString(natural);
-          break;
-       }
-      QString note = n[item.pianoNote-1] + accident;
+      QString note = noteLabelText(m_settings, midiNote, item);
       renderText(x, y, note.toUtf8().data());
      }
 #endif
@@ -339,7 +469,7 @@ void CDraw::drawStaveNoteName(CSymbol symbol, float x, float y)
 {
     if ( symbol.getNoteIndex() + 1 != symbol.getNoteTotal())
         return;
-    if (m_settings->showNoteNames() == false)
+    if (m_settings->showNoteNames() == false && m_settings->showNoteNumbers() == false)
         return;
     y += CStavePos::getVerticalNoteSpacing()*2 +3;
     drawNoteName(symbol.getNote(), x, y, true);
@@ -408,61 +538,11 @@ bool CDraw::drawNote(CSymbol* symbol, float x, float y, CSlot* slot, CColor colo
     {
         if (!solidNoteHead)
             noteWidth += 1.0f;
-        glLineWidth(2.0f);
-        glBegin(GL_LINE_STRIP);
-            glVertex2f(noteWidth + x,  0.0f + y); // 1
-            glVertex2f(noteWidth + x, stemLength + y); // 2
-        glEnd();
+        drawStem(x, y, noteWidth, stemLength);
     }
 
-    float offset = stemLength;
-    while (stemFlagCount>0)
-    {
-
-        glLineWidth(2.0);
-        glBegin(GL_LINE_STRIP);
-            glVertex2f(noteWidth + x, offset  + y); // 1
-            glVertex2f(noteWidth + 8.0f + x, offset - 16.0f + y); // 2
-        glEnd();
-        offset -= 8;
-        stemFlagCount--;
-    }
-
-    if (solidNoteHead)
-    {
-        glBegin(GL_POLYGON);
-            glVertex2f(-7.0f + x,  2.0f + y); // 1
-            glVertex2f(-5.0f + x,  4.0f + y); // 2
-            glVertex2f(-1.0f + x,  6.0f + y); // 3
-            glVertex2f( 4.0f + x,  6.0f + y); // 4
-            glVertex2f( 7.0f + x,  4.0f + y); // 5
-            glVertex2f( 7.0f + x,  1.0f + y); // 6
-            glVertex2f( 6.0f + x, -2.0f + y); // 7
-            glVertex2f( 4.0f + x, -4.0f + y); // 8
-            glVertex2f( 0.0f + x, -6.0f + y); // 9
-            glVertex2f(-4.0f + x, -6.0f + y); // 10
-            glVertex2f(-8.0f + x, -3.0f + y); // 11
-            glVertex2f(-8.0f + x, -0.0f + y); // 12
-        glEnd();
-    }
-    else
-    {
-        glLineWidth(2.0);
-        glBegin(GL_LINE_STRIP);
-            glVertex2f(-7.0f + x,  2.0f + y); // 1
-            glVertex2f(-5.0f + x,  4.0f + y); // 2
-            glVertex2f(-1.0f + x,  6.0f + y); // 3
-            glVertex2f( 4.0f + x,  6.0f + y); // 4
-            glVertex2f( 7.0f + x,  4.0f + y); // 5
-            glVertex2f( 7.0f + x,  1.0f + y); // 6
-            glVertex2f( 6.0f + x, -2.0f + y); // 7
-            glVertex2f( 4.0f + x, -4.0f + y); // 8
-            glVertex2f( 0.0f + x, -6.0f + y); // 9
-            glVertex2f(-4.0f + x, -6.0f + y); // 10
-            glVertex2f(-8.0f + x, -3.0f + y); // 11
-            glVertex2f(-8.0f + x, -0.0f + y); // 12
-        glEnd();
-    }
+    drawStemFlags(x, y, noteWidth, stemFlagCount);
+    drawNoteHeadShape(x, y, solidNoteHead);
 
     checkAccidental(*symbol, x, y);
 
@@ -606,64 +686,10 @@ void CDraw::drawSymbol(CSymbol symbol, float x, float y, CSlot* slot)
             // http://piano-booster.2625608.n2.nabble.com/Pianobooster-port-to-arm-linux-or-Android-td7572459.html
             // http://piano-booster.2625608.n2.nabble.com/Pianobooster-port-to-arm-linux-or-Android-td7572459.html#a7572676
             if (m_settings->coloredNotes() && color == Cfg::noteColor()) //KORY added
-            {
-                int note = symbol.getNote() % MIDI_OCTAVE;
-                switch (note)
-                {
-                    case 0: //note::PitchLabel::C:
-                        color = CColor(1.0, 0.0, 0.0); //Red
-                      break;
-                    case 1: //note::PitchLabel::C♯:
-                        color = CColor(1.0, 0.25, 0.0); //Red
-                      break;
-                    case 2: //note::PitchLabel::D:
-                        color = CColor(1.0, 0.5, 0.0); //Orange
-                      break;
-                    case 3: //note::PitchLabel::D♯:
-                        color = CColor(1.0, 0.75, 0.0); //Orange
-                      break;
-                    case 4: //note::PitchLabel::E:
-                        color = CColor(1.0, 1.0, 0.0); //Yellow
-                      break;
-                    case 5: //note::PitchLabel::F:
-                        color = CColor(0.0, 1.0, 0.0); //Green
-                      break;
-                    case 6: //note::PitchLabel::F♯:
-                        color = CColor(0.0, 0.5, 0.5); //Green
-                      break;
-                    case 7: //note::PitchLabel::G:
-                        color = CColor(0.0, 0.0, 1.0); //Blue
-                      break;
-                    case 8: //note::PitchLabel::G♯:
-                        color = CColor(0.290, 0.0, 0.903); //Blue
-                      break;
-                    case 9: //note::PitchLabel::A:
-                        color = CColor(0.580, 0.0, 0.827); //Dark Violet #9400D3
-                      break;
-                    case 10: //note::PitchLabel::A♯:
-                        color = CColor(0.790, 0.0, 0.903); //Dark Violet #9400D3
-                      break;
-                    case 11: //note::PitchLabel::B:
-                        color = CColor(1.0, 0.0, 1.0); //Magenta
-                      break;
-                }
-            }
+                color = learningPitchColor(symbol.getNote());
 
             drColor(color);
-            glBegin(GL_POLYGON);
-                glVertex2f(-7.0f + x,  2.0f + y); // 1
-                glVertex2f(-5.0f + x,  4.0f + y); // 2
-                glVertex2f(-1.0f + x,  6.0f + y); // 3
-                glVertex2f( 4.0f + x,  6.0f + y); // 4
-                glVertex2f( 7.0f + x,  4.0f + y); // 5
-                glVertex2f( 7.0f + x,  1.0f + y); // 6
-                glVertex2f( 6.0f + x, -2.0f + y); // 7
-                glVertex2f( 4.0f + x, -4.0f + y); // 8
-                glVertex2f( 0.0f + x, -6.0f + y); // 9
-                glVertex2f(-4.0f + x, -6.0f + y); // 10
-                glVertex2f(-8.0f + x, -3.0f + y); // 11
-                glVertex2f(-8.0f + x, -0.0f + y); // 12
-            glEnd();
+            drawNoteHeadShape(x, y, true);
 
             /*
             // shows the MIDI Duration (but not very useful)
@@ -743,7 +769,7 @@ void CDraw::drawSymbol(CSymbol symbol, float x, float y, CSlot* slot)
 
         case PB_SYMBOL_barLine:
             x += BEAT_MARKER_OFFSET * HORIZONTAL_SPACING_FACTOR; // the beat markers where entered early so now move them correctly
-            glLineWidth (4.0f);
+            glLineWidth (1.4f);
             drColor ((m_displayHand == PB_PART_left) ? Cfg::staveColorDim() : Cfg::staveColor());
             oneLine(x, CStavePos(PB_PART_right, 4).getPosYRelative(), x, CStavePos(PB_PART_right, -4).getPosYRelative());
             drColor ((m_displayHand == PB_PART_right) ? Cfg::staveColorDim() : Cfg::staveColor());
@@ -752,16 +778,16 @@ void CDraw::drawSymbol(CSymbol symbol, float x, float y, CSlot* slot)
 
         case PB_SYMBOL_barMarker:
             x += BEAT_MARKER_OFFSET * HORIZONTAL_SPACING_FACTOR; // the beat markers where entered early so now move them correctly
-            glLineWidth (5.0f);
-            drColor(Cfg::barMarkerColor());
+            glLineWidth (2.0f);
+            drColorAlpha(Cfg::barMarkerColor(), 0.72f);
             oneLine(x, CStavePos(PB_PART_right, m_beatMarkerHeight).getPosYRelative(), x, CStavePos(PB_PART_left, -m_beatMarkerHeight).getPosYRelative());
             glDisable (GL_LINE_STIPPLE);
             break;
 
         case PB_SYMBOL_beatMarker:
             x += BEAT_MARKER_OFFSET * HORIZONTAL_SPACING_FACTOR; // the beat markers where entered early so now move them correctly
-            glLineWidth (4.0);
-            drColor(Cfg::beatMarkerColor());
+            glLineWidth (1.0f);
+            drColorAlpha(Cfg::beatMarkerColor(), 0.55f);
             oneLine(x, CStavePos(PB_PART_right, m_beatMarkerHeight).getPosYRelative(), x, CStavePos(PB_PART_left, -m_beatMarkerHeight).getPosYRelative());
             glDisable (GL_LINE_STIPPLE);
             break;
@@ -772,13 +798,13 @@ void CDraw::drawSymbol(CSymbol symbol, float x, float y, CSlot* slot)
                 float bottomY = CStavePos(PB_PART_left, -m_beatMarkerHeight).getPosY();
                 float early = static_cast<float>(Cfg::playZoneEarly()) * HORIZONTAL_SPACING_FACTOR;
                 float late = static_cast<float>(Cfg::playZoneLate()) * HORIZONTAL_SPACING_FACTOR;
-                drColor(Cfg::playZoneFillColor());
-                glRectf(x-late, topY, x + early, bottomY);
-                glLineWidth (2.0f);
-                drColor(Cfg::playZoneCenterColor());
+                drawVerticalBand(x - late * 1.25f, x + early * 1.25f, topY, bottomY, 0.18f);
+                drawVerticalBand(x - late * 0.28f, x + early * 0.28f, topY, bottomY, 0.16f);
+                glLineWidth (2.4f);
+                drColorAlpha(Cfg::playZoneCenterColor(), 0.90f);
                 oneLine(x, topY, x, bottomY );
                 glLineWidth (1.0f);
-                drColor(Cfg::playZoneEdgeColor());
+                drColorAlpha(Cfg::playZoneEdgeColor(), 0.50f);
                 oneLine(x-late, topY, x-late, bottomY );
                 oneLine(x+early, topY, x+early, bottomY );
             }

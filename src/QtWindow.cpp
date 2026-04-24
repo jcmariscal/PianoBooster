@@ -65,6 +65,7 @@ QtWindow::QtWindow()
 
     Cfg::setDefaults();
     Cfg::setTheme(m_settings->value("View/Theme", PB_THEME_sepiaPaper).toInt());
+    Cfg::setViewMode(m_settings->value("View/Mode", PB_VIEW_MODE_score).toInt());
     CNote::setSplitHands(m_settings->value("Song/SplitHands", false).toBool());
     CNote::setSplitHandsMode(static_cast<splitHandsMode_t>(
         m_settings->value("Song/SplitHandsMode", PB_SPLIT_HANDS_naive).toInt()));
@@ -375,6 +376,8 @@ void QtWindow::createActions()
     }
     connect(m_viewPianoKeyboard, SIGNAL(triggered()), this, SLOT(onViewPianoKeyboard()));
 
+    createViewModeActions();
+
     m_themeGroup = new QActionGroup(this);
     m_themeGroup->setExclusive(true);
     connect(m_themeGroup, SIGNAL(triggered(QAction*)), this, SLOT(onTheme(QAction*)));
@@ -489,6 +492,30 @@ void QtWindow::createActions()
      }
 }
 
+void QtWindow::createViewModeActions()
+{
+    m_viewModeGroup = new QActionGroup(this);
+    m_viewModeGroup->setExclusive(true);
+    connect(m_viewModeGroup, SIGNAL(triggered(QAction*)), this, SLOT(onViewMode(QAction*)));
+
+    m_scoreModeAct = new QAction(tr("&Score"), this);
+    m_scoreModeAct->setToolTip(tr("Show scrolling sheet music"));
+    m_scoreModeAct->setCheckable(true);
+    m_scoreModeAct->setData(PB_VIEW_MODE_score);
+    m_viewModeGroup->addAction(m_scoreModeAct);
+
+    m_synthesiaModeAct = new QAction(tr("S&ynthesia"), this);
+    m_synthesiaModeAct->setToolTip(tr("Show falling notes over a piano keyboard"));
+    m_synthesiaModeAct->setCheckable(true);
+    m_synthesiaModeAct->setData(PB_VIEW_MODE_synthesia);
+    m_viewModeGroup->addAction(m_synthesiaModeAct);
+
+    if (Cfg::viewMode() == PB_VIEW_MODE_synthesia)
+        m_synthesiaModeAct->setChecked(true);
+    else
+        m_scoreModeAct->setChecked(true);
+}
+
 void QtWindow::createMenus()
 {
     m_fileMenu = menuBar()->addMenu(tr("&File"));
@@ -506,6 +533,7 @@ void QtWindow::createMenus()
     m_viewMenu->addAction(m_sidePanelStateAct);
     m_viewMenu->addAction(m_fullScreenStateAct);
     m_viewMenu->addAction(m_viewPianoKeyboard);
+    addViewModeMenu();
     m_themeMenu = m_viewMenu->addMenu(tr("&Theme"));
     m_themeMenu->addAction(m_themeSepiaPaperAct);
     m_themeMenu->addAction(m_themeWhitePaperAct);
@@ -544,6 +572,13 @@ void QtWindow::createMenus()
 
     m_helpMenu->addAction(m_shortcutAct);
     m_helpMenu->addAction(m_aboutAct);
+}
+
+void QtWindow::addViewModeMenu()
+{
+    QMenu *modeMenu = m_viewMenu->addMenu(tr("&Mode"));
+    modeMenu->addAction(m_scoreModeAct);
+    modeMenu->addAction(m_synthesiaModeAct);
 }
 
 void QtWindow::openRecentFile()
@@ -616,6 +651,19 @@ void QtWindow::onTheme(QAction *action)
 
     Cfg::setTheme(action->data().toInt());
     m_settings->setValue("View/Theme", Cfg::theme());
+    CDraw::forceCompileRedraw();
+    m_score->refreshScroll();
+    m_song->forceScoreRedraw();
+    m_glWidget->update();
+}
+
+void QtWindow::onViewMode(QAction *action)
+{
+    if (!action)
+        return;
+
+    Cfg::setViewMode(action->data().toInt());
+    m_settings->setValue("View/Mode", Cfg::viewMode());
     CDraw::forceCompileRedraw();
     m_score->refreshScroll();
     m_song->forceScoreRedraw();

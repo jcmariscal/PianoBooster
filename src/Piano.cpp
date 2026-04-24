@@ -280,7 +280,7 @@ void CPiano::clear()
 
 void CPiano::drawPianoInput()
 {
-    bool showNoteName = m_settings->showNoteNames();
+    bool showNoteName = m_settings->showNoteNames() || m_settings->showNoteNumbers();
     int lineLength = (showNoteName) ? PIANO_LINE_LENGTH_SHORT : PIANO_LINE_LENGTH_LONG;
 
     if (m_goodChord.length() > 0)
@@ -334,4 +334,3 @@ CChord CPiano::removeSavedChord(int key)
     return m_savedChordLookUp[i].savedNoteOffChord;
 
 }
-

@@ -49,17 +49,23 @@ public:
 
     /// returns true if the user wants to see the note names
     bool isNoteNamesEnabled() { return m_noteNamesEnabled; }
+    bool isNoteNumbersEnabled() { return m_noteNumbersEnabled; }
     bool displayCourtesyAccidentals() { return CNotation::displayCourtesyAccidentals(); }
 
     bool isTutorPagesEnabled() { return m_tutorPagesEnabled; }
     bool isFollowThroughErrorsEnabled() { return m_followThroughErrorsEnabled; }
     bool isColoredNotesEnabled() { return m_coloredNotes; }
+    bool isSynthesiaNoteNamesEnabled() { return m_synthesiaNoteNamesEnabled; }
+    bool isSynthesiaBeatGuidesEnabled() { return m_synthesiaBeatGuidesEnabled; }
 
     /// Saves in the .ini file whether the user wants to show the note names
     void setNoteNamesEnabled(bool value);
+    void setNoteNumbersEnabled(bool value);
     void setColoredNotes(bool value);
     void setTutorPagesEnabled(bool value);
     void setFollowThroughErrorsEnabled(bool value);
+    void setSynthesiaNoteNamesEnabled(bool value);
+    void setSynthesiaBeatGuidesEnabled(bool value);
 
     void setCourtesyAccidentals(bool value);
     void setAdvancedMode(bool value) { m_advancedMode = value;}
@@ -67,6 +73,10 @@ public:
     /// returns true if the user wants to see the note names
     bool showNoteNames(){
         return m_noteNamesEnabled;
+    }
+
+    bool showNoteNumbers(){
+        return m_noteNumbersEnabled;
     }
 
     /// returns true if the user wants to see color-coded notes
@@ -81,6 +91,14 @@ public:
     /// returns true if the user wants Follow Skill to ignore errors
     bool followThroughErrors(){
         return m_followThroughErrorsEnabled;
+    }
+
+    bool synthesiaNoteNames(){
+        return m_synthesiaNoteNamesEnabled;
+    }
+
+    bool synthesiaBeatGuides(){
+        return m_synthesiaBeatGuidesEnabled;
     }
 
     void updateTutorPage();
@@ -198,10 +216,13 @@ private:
     GuiSidePanel* m_guiSidePanel;
     GuiTopBar* m_guiTopBar;
     bool m_noteNamesEnabled;
+    bool m_noteNumbersEnabled;
     bool m_coloredNotes;
     bool m_tutorPagesEnabled;
     bool m_advancedMode;
     bool m_followThroughErrorsEnabled;
+    bool m_synthesiaNoteNamesEnabled;
+    bool m_synthesiaBeatGuidesEnabled;
     QString m_bookPath;
     QString m_currentBookName;
     QString m_currentSongName;

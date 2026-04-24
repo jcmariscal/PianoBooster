@@ -37,6 +37,14 @@
 
 class CSettings;
 
+struct CSynthesiaKeyLight
+{
+    int pitch;
+    CColor color;
+    float intensity;
+    bool active;
+};
+
 class CScroll : public CDraw
 {
 public:
@@ -76,6 +84,10 @@ public:
     int midiEventSpace() { return m_notation->midiEventSpace(); }
 
     void drawScrollingSymbols(bool show);
+    void drawSynthesiaNotes(float strikeY, float topY, float leftX, float whiteKeyWidth);
+    void collectSynthesiaKeyLights(float strikeY, float topY, float leftX, float whiteKeyWidth,
+                                   CSynthesiaKeyLight *lights, int lightCount);
+    qint64 currentSynthesiaTicks() const { return -deltaAdjustL(m_deltaTail); }
     void showScroll(bool show);
     bool getKeyboardInfo(int *notes);
 

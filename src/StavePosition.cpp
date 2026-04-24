@@ -35,6 +35,56 @@ int CStavePos::m_KeySignatureMajorMinor;
 const staveLookup_t*  CStavePos::m_staveLookUpTable;
 float CStavePos::m_staveCentralOffset = (staveHeight() * 3)/2;
 
+namespace {
+constexpr int NotesInScale = 7;
+constexpr int SemitonesInOctave = 12;
+
+int positiveModulo(int value, int modulo)
+{
+    const int result = value % modulo;
+    return result < 0 ? result + modulo : result;
+}
+
+int clampedKeySignature(int keySignature)
+{
+    if (keySignature == NOT_USED)
+        keySignature = 0;
+    if (keySignature < -7)
+        return -7;
+    if (keySignature > 7)
+        return 7;
+    return keySignature;
+}
+
+int normalizedPianoNote(int pianoNote)
+{
+    return positiveModulo(pianoNote - 1, NotesInScale) + 1;
+}
+
+int majorTonicPianoNote(int keySignature)
+{
+    static const int tonicByKey[] = {1, 5, 2, 6, 3, 7, 4, 1, 5, 2, 6, 3, 7, 4, 1};
+    return tonicByKey[clampedKeySignature(keySignature) + 7];
+}
+
+int minorTonicPianoNote(int keySignature)
+{
+    return normalizedPianoNote(majorTonicPianoNote(keySignature) - 2);
+}
+
+int tonicPianoNote(int keySignature, int majorMinor)
+{
+    if (majorMinor == 1)
+        return minorTonicPianoNote(keySignature);
+    return majorTonicPianoNote(keySignature);
+}
+
+int degreeFromPianoNote(int pianoNote, int tonicPianoNote)
+{
+    return positiveModulo(pianoNote - tonicPianoNote, NotesInScale) + 1;
+}
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //! @brief Calculates the position of a note on the stave
 void CStavePos::notePos(whichPart_t hand, int midiNote)
@@ -82,6 +132,17 @@ staveLookup_t CStavePos::midiNote2Name(int midiNote)
         }
     }
     return item;
+}
+
+int CStavePos::midiNote2ScaleDegree(int midiNote)
+{
+    const int index = positiveModulo(midiNote, SemitonesInOctave);
+    const staveLookup_t *lookup = m_staveLookUpTable;
+    if (lookup == nullptr)
+        lookup = getstaveLookupTable(0);
+    const int pianoNote = normalizedPianoNote(lookup[index].pianoNote);
+    const int tonic = tonicPianoNote(m_KeySignature, m_KeySignatureMajorMinor);
+    return degreeFromPianoNote(pianoNote, tonic);
 }
 
 void CStavePos::setKeySignature(int key, int majorMinor)

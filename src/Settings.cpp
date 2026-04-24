@@ -68,10 +68,13 @@ CSettings::CSettings(QtWindow *mainWindow) : QSettings(CSettings::IniFormat, CSe
     m_advancedMode = false;
     m_pianistActive = false;
     m_noteNamesEnabled = value("Score/NoteNames", true ).toBool();
+    m_noteNumbersEnabled = value("Score/NoteNumbers", false).toBool();
     m_coloredNotes = value("Score/ColoredNotes", false ).toBool();
     m_tutorPagesEnabled = value("Tutor/TutorPages", true ).toBool();
     CNotation::setCourtesyAccidentals(value("Score/CourtesyAccidentals", false ).toBool());
     m_followThroughErrorsEnabled = value("Score/FollowThroughErrors", false ).toBool();
+    m_synthesiaNoteNamesEnabled = value("Synthesia/NoteNames", true).toBool();
+    m_synthesiaBeatGuidesEnabled = value("Synthesia/BeatGuides", true).toBool();
 
     // load Fluid settings
     setFluidSoundFontNames( value("FluidSynth/SoundFont").toStringList());
@@ -97,6 +100,11 @@ void CSettings::setNoteNamesEnabled(bool value) {
     setValue("Score/NoteNames", value );
 }
 
+void CSettings::setNoteNumbersEnabled(bool value) {
+    m_noteNumbersEnabled = value;
+    setValue("Score/NoteNumbers", value);
+}
+
 void CSettings::setColoredNotes(bool value) {
     m_coloredNotes = value;
     setValue("Score/ColoredNotes", value );
@@ -116,6 +124,16 @@ void CSettings::setCourtesyAccidentals(bool value) {
 void CSettings::setFollowThroughErrorsEnabled(bool value) {
     m_followThroughErrorsEnabled = value;
     setValue("Score/FollowThroughErrors", value );
+}
+
+void CSettings::setSynthesiaNoteNamesEnabled(bool value) {
+    m_synthesiaNoteNamesEnabled = value;
+    setValue("Synthesia/NoteNames", value);
+}
+
+void CSettings::setSynthesiaBeatGuidesEnabled(bool value) {
+    m_synthesiaBeatGuidesEnabled = value;
+    setValue("Synthesia/BeatGuides", value);
 }
 
 // Open a document if it exists or else create it (also delete an duplicates

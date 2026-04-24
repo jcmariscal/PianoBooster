@@ -171,6 +171,7 @@ private slots:
     void on_splitHands(bool checked);
     void on_splitHandsMode();
     void onTheme(QAction *action);
+    void onViewMode(QAction *action);
 
 protected:
     void closeEvent(QCloseEvent *event);
@@ -191,7 +192,9 @@ private:
 
     void displayUsage();
     void createActions();
+    void createViewModeActions();
     void createMenus();
+    void addViewModeMenu();
     void readSettings();
     void writeSettings();
 
@@ -218,6 +221,9 @@ private:
     QAction *m_setupKeyboardAct;
     QAction *m_sidePanelStateAct;
     QAction *m_viewPianoKeyboard;
+    QAction *m_scoreModeAct;
+    QAction *m_synthesiaModeAct;
+    QActionGroup *m_viewModeGroup;
     QAction *m_themeSepiaPaperAct;
     QAction *m_themeWhitePaperAct;
     QAction *m_themeClassicDarkAct;

@@ -114,6 +114,8 @@ public:
     static void setStaveCenterY(float y) { m_staveCenterY = y; }
     static void setKeySignature(int key, int majorMinor);
     static int getKeySignature() {return m_KeySignature;}
+    static int getKeySignatureMajorMinor() {return m_KeySignatureMajorMinor;}
+    static int midiNote2ScaleDegree(int midiNote);
     static void setStaveCentralOffset(float gap) { m_staveCentralOffset = gap; }
     static float verticalNoteSpacing()      {return 7;}
     static float staveHeight()              {return verticalNoteSpacing() * 8;}

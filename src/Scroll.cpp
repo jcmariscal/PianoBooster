@@ -28,12 +28,175 @@
 
 #include "Cfg.h"
 #include "Scroll.h"
+#include "KeyboardGeometry.h"
+#include "Settings.h"
 
 //#define NOTE_AHEAD_GAP          50
 //#define NOTE_BEHIND_GAP          14
 
 #define NOTE_AHEAD_GAP          22 // the notes on the left hand side of the score
 #define NOTE_BEHIND_GAP         14
+
+namespace {
+constexpr float SynthesiaMinimumNoteHeight = 14.0f;
+constexpr int SynthesiaVisibleBeats = 8;
+
+struct SynthesiaNoteRect
+{
+    float left;
+    float right;
+    float bottom;
+    float top;
+    float alpha;
+    CColor color;
+    int pitch;
+    bool valid;
+};
+
+float clampFloat(float value, float minValue, float maxValue)
+{
+    if (value < minValue)
+        return minValue;
+    if (value > maxValue)
+        return maxValue;
+    return value;
+}
+
+CColor synthesiaColor(whichPart_t hand)
+{
+    if (hand == PB_PART_left)
+        return Cfg::synthesiaLeftColor();
+    return Cfg::synthesiaRightColor();
+}
+
+int synthesiaVisibleTicks()
+{
+    return qMax(1, CMidiFile::getPulsesPerQuarterNote() * SynthesiaVisibleBeats);
+}
+
+float synthesiaPixelsPerTick(float strikeY, float topY)
+{
+    return (topY - strikeY) / static_cast<float>(synthesiaVisibleTicks());
+}
+
+CColor synthesiaStateColor(CSymbol symbol)
+{
+    const CColor color = symbol.getColor();
+    if (color == Cfg::playedBadColor())
+        return Cfg::playedBadColor();
+    if (color == Cfg::playedGoodColor())
+        return Cfg::playedGoodColor();
+    if (color == Cfg::playedStoppedColor())
+        return Cfg::playedStoppedColor();
+    return synthesiaColor(symbol.getHand());
+}
+
+float handAlpha(whichPart_t hand)
+{
+    const whichPart_t displayHand = CDraw::getDisplayHand();
+    if (displayHand != PB_PART_both && displayHand != hand)
+        return 0.25f;
+    return 1.0f;
+}
+
+float distanceAlpha(float startTicks)
+{
+    if (startTicks <= 0.0f)
+        return 0.92f;
+    const float visible = static_cast<float>(synthesiaVisibleTicks());
+    return 0.30f + 0.58f * (1.0f - qMin(1.0f, startTicks / visible));
+}
+
+void drawSynthesiaRect(float left, float bottom, float right, float top,
+                       CColor color, float alpha)
+{
+    CDraw::drColorAlpha(Cfg::paperShadowColor(), alpha * 0.22f);
+    glRectf(left + 1.8f, top + 1.8f, right + 1.8f, bottom + 1.8f);
+    CDraw::drColorAlpha(color, alpha);
+    glRectf(left, top, right, bottom);
+    CDraw::drColorAlpha(CColor(1.0, 1.0, 1.0), alpha * 0.16f);
+    glRectf(left + 1.0f, top - 4.0f, right - 1.0f, top);
+    CDraw::drColorAlpha(color, qMin(1.0f, alpha + 0.16f));
+    glLineWidth(1.2f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(left, top);
+    glVertex2f(right, top);
+    glVertex2f(right, bottom);
+    glVertex2f(left, bottom);
+    glEnd();
+    CDraw::drColorAlpha(CColor(1.0, 1.0, 1.0), alpha * 0.34f);
+    glLineWidth(2.0f);
+    glBegin(GL_LINES);
+    glVertex2f(left + 1.0f, bottom);
+    glVertex2f(right - 1.0f, bottom);
+    glEnd();
+}
+
+void drawStrikeGlow(const SynthesiaNoteRect& rect, float strikeY)
+{
+    if (rect.bottom > strikeY + 3.0f || rect.top < strikeY)
+        return;
+    CDraw::drColorAlpha(rect.color, rect.alpha * 0.30f);
+    glRectf(rect.left - 4.0f, strikeY + 10.0f, rect.right + 4.0f, strikeY - 5.0f);
+    CDraw::drColorAlpha(CColor(1.0, 1.0, 1.0), rect.alpha * 0.50f);
+    glLineWidth(3.0f);
+    glBegin(GL_LINES);
+    glVertex2f(rect.left, strikeY);
+    glVertex2f(rect.right, strikeY);
+    glEnd();
+}
+
+SynthesiaNoteRect makeSynthesiaRect(CSymbol symbol, float startTicks,
+                                    float strikeY, float topY,
+                                    float leftX, float whiteKeyWidth)
+{
+    SynthesiaNoteRect rect = {};
+    rect.valid = false;
+    if (symbol.getType() < PB_SYMBOL_noteHead)
+        return rect;
+
+    const float scale = synthesiaPixelsPerTick(strikeY, topY);
+    const int pitch = symbol.getNote();
+    const float duration = static_cast<float>(qMax(1, symbol.getMidiDuration()));
+    const float bottom = strikeY + startTicks * scale;
+    const float height = qMax(SynthesiaMinimumNoteHeight, duration * scale);
+    rect.left = KeyboardGeometry::keyLeft(pitch, leftX, whiteKeyWidth);
+    rect.right = rect.left + KeyboardGeometry::keyWidth(pitch, whiteKeyWidth);
+    rect.bottom = clampFloat(bottom, strikeY, topY);
+    rect.top = clampFloat(bottom + height, strikeY, topY);
+    rect.alpha = distanceAlpha(startTicks) * handAlpha(symbol.getHand());
+    rect.color = synthesiaStateColor(symbol);
+    rect.pitch = pitch;
+    rect.valid = rect.top > strikeY && rect.top > rect.bottom;
+    return rect;
+}
+
+void drawSynthesiaNote(const SynthesiaNoteRect& rect, float strikeY)
+{
+    if (!rect.valid)
+        return;
+    drawStrikeGlow(rect, strikeY);
+    drawSynthesiaRect(rect.left, rect.bottom, rect.right, rect.top, rect.color, rect.alpha);
+}
+
+bool noteTouchesStrikeLine(const SynthesiaNoteRect& rect, float strikeY)
+{
+    return rect.valid && rect.bottom <= strikeY + 2.0f && rect.top >= strikeY;
+}
+
+void setKeyLight(CSynthesiaKeyLight *lights, int count, const SynthesiaNoteRect& rect)
+{
+    const int index = rect.pitch - KeyboardGeometry::LowestMidiNote;
+    if (index < 0 || index >= count)
+        return;
+    if (lights[index].active && lights[index].intensity >= rect.alpha)
+        return;
+    lights[index].pitch = rect.pitch;
+    lights[index].color = rect.color;
+    lights[index].intensity = qMin(1.0f, rect.alpha + 0.08f);
+    lights[index].active = true;
+}
+}
 
 void CScroll::compileSlot(CSlotDisplayList info)
 {
@@ -174,6 +337,50 @@ void CScroll::drawScrollingSymbols(bool show)
     BENCHMARK(9, "glCallList");
 
     glPopMatrix();
+}
+
+void CScroll::drawSynthesiaNotes(float strikeY, float topY, float leftX, float whiteKeyWidth)
+{
+    insertSlots();
+    removeSlots();
+    removeEarlyTimingMakers();
+
+    if (m_show == false)
+        return;
+
+    float startTicks = deltaAdjustF(m_deltaTail);
+    for (int i = 0; i < m_scrollQueue->length(); ++i)
+    {
+        CSlotDisplayList *slot = m_scrollQueue->indexPtr(i);
+        startTicks += static_cast<float>(slot->getDeltaTime());
+        for (int j = 0; j < slot->length(); ++j) {
+            const SynthesiaNoteRect rect = makeSynthesiaRect(
+                        slot->getSymbol(j), startTicks, strikeY, topY, leftX, whiteKeyWidth);
+            drawSynthesiaNote(rect, strikeY);
+            if (rect.valid && m_settings->synthesiaNoteNames() && rect.top - rect.bottom >= 24.0f)
+                drawNoteName(rect.pitch, (rect.left + rect.right) / 2.0f, (rect.bottom + rect.top) / 2.0f, 0);
+        }
+    }
+}
+
+void CScroll::collectSynthesiaKeyLights(float strikeY, float topY, float leftX, float whiteKeyWidth,
+                                        CSynthesiaKeyLight *lights, int lightCount)
+{
+    if (m_show == false || lights == nullptr || lightCount <= 0)
+        return;
+
+    float startTicks = deltaAdjustF(m_deltaTail);
+    for (int i = 0; i < m_scrollQueue->length(); ++i)
+    {
+        CSlotDisplayList *slot = m_scrollQueue->indexPtr(i);
+        startTicks += static_cast<float>(slot->getDeltaTime());
+        for (int j = 0; j < slot->length(); ++j) {
+            const SynthesiaNoteRect rect = makeSynthesiaRect(
+                        slot->getSymbol(j), startTicks, strikeY, topY, leftX, whiteKeyWidth);
+            if (noteTouchesStrikeLine(rect, strikeY))
+                setKeyLight(lights, lightCount, rect);
+        }
+    }
 }
 
 void CScroll::scrollDeltaTime(qint64 ticks)

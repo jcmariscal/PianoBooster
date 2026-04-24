@@ -28,6 +28,7 @@
 
 #include <QtWidgets>
 #include <QtOpenGL>
+#include <QFontDatabase>
 #include <QOpenGLFunctions>
 #include <QOpenGLFunctions_1_1>
 #include <QPaintEngine>
@@ -41,11 +42,68 @@
 
 // This defines the PB Open GL frame per seconds.
 // Try to make sure this runs a bit faster than the screen refresh rate of 60z (or 16.6 msec)
-#define SCREEN_FRAME_RATE 12 // That 12 msec or 83.3 frames per second
+#define SCREEN_FRAME_RATE 16 // 16 msec targets display-friendly 60 Hz pacing.
 
 #define REDRAW_COUNT ((m_cfg_openGlOptimise >= 2) ? 1 : 2) // there are two gl buffers but redrawing once is best (set 2 with buggy gl drivers)
 
 #define TEXT_LEFT_MARGIN 30
+
+namespace {
+void fillRect(float left, float top, float right, float bottom)
+{
+    glBegin(GL_QUADS);
+    glVertex2f(left, top);
+    glVertex2f(right, top);
+    glVertex2f(right, bottom);
+    glVertex2f(left, bottom);
+    glEnd();
+}
+
+void strokeRect(float left, float top, float right, float bottom)
+{
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(left, top);
+    glVertex2f(right, top);
+    glVertex2f(right, bottom);
+    glVertex2f(left, bottom);
+    glEnd();
+}
+
+int viewportWidthFor(int width)
+{
+    const int margin = 24;
+    if (width <= margin * 2)
+        return qMax(1, width);
+    return qMin(width - margin * 2, 1440);
+}
+
+int titleHeightFor(int height)
+{
+    if (height < 430)
+        return 24;
+    if (height < 650)
+        return 52;
+    return 64;
+}
+
+int staveGapFor(int height)
+{
+    const int minStaveGap = 120;
+    if (height < 430)
+        return minStaveGap;
+    return qBound(minStaveGap, static_cast<int>(CStavePos::staveHeight() * 3.1f), 190);
+}
+
+QFont scaledSystemFont(const QWidget *widget, int percent, int weight)
+{
+    QFont font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+    const int baseSize = qMax(9, widget->font().pointSize());
+    font.setPointSize(qMax(9, baseSize * percent / 100));
+    font.setWeight(weight);
+    font.setLetterSpacing(QFont::PercentageSpacing, 100.0);
+    return font;
+}
+}
 
 CGLView::CGLView(QtWindow* parent, CSettings* settings)
     : QOpenGLWidget(parent)
@@ -57,6 +115,7 @@ CGLView::CGLView(QtWindow* parent, CSettings* settings)
     m_forcefullRedraw = 0;
     m_forceRatingRedraw = 0;
     m_forceBarRedraw = 0;
+    m_titleHeight = 60;
     m_allowedTimerEvent = true;
 
     m_backgroundColor = QColor(0, 0, 0);
@@ -100,7 +159,7 @@ void CGLView::paintGL()
 {
     BENCHMARK(2, "enter");
 
-    CColor background = Cfg::backgroundColor();
+    CColor background = Cfg::appBackgroundColor();
     glClearColor(background.red, background.green, background.blue, 0.0);
 
     m_displayUpdateTicks = 0;
@@ -114,6 +173,9 @@ void CGLView::paintGL()
     glLoadIdentity();
     //BENCHMARK(3, "glLoadIdentity");
 
+    if (m_forcefullRedraw)
+        drawBackgroundSurface();
+
     drawDisplayText();
     BENCHMARK(4, "drawDisplayText");
 
@@ -126,7 +188,8 @@ void CGLView::paintGL()
     if (m_forcefullRedraw)
         m_score->drawScore();
 
-    drawTimeSignature();
+    if (Cfg::viewMode() == PB_VIEW_MODE_score)
+        drawTimeSignature();
 
     updateMidiTask();
     m_score->drawScroll(m_forcefullRedraw);
@@ -185,7 +248,7 @@ void CGLView::drawAccurracyBar()
 
     float y = static_cast<float>(Cfg::getAppHeight() - 14);
     const float x = static_cast<float>(accuracyBarStart);
-    const int width = 360;
+    const int width = qBound(220, Cfg::getAppWidth() - accuracyBarStart - 44, 420);
     const int lineWidth = 8/2;
 
     m_rating->calculateAccuracy();
@@ -194,7 +257,7 @@ void CGLView::drawAccurracyBar()
     color = m_rating->getAccuracyColor();
     CDraw::drColor (color);
     glRectf(x, y - lineWidth, x + width * accuracy, y + lineWidth);
-    CDraw::drColor (Cfg::backgroundColor());
+    CDraw::drColorAlpha(Cfg::paperEdgeColor(), 0.38f);
     glRectf(x + width * accuracy, y - lineWidth, x + width, y + lineWidth);
 
     glLineWidth (1);
@@ -227,8 +290,6 @@ void CGLView::drawDisplayText()
         return;
     }
 
-    CDraw::drColor(Cfg::textColor());
-
     if (m_song->getPlayMode() != PB_PLAY_MODE_listen) {
         if (accuracyBarStart == 0) {
             QFontMetrics fm(m_timeRatingFont);
@@ -236,6 +297,7 @@ void CGLView::drawDisplayText()
             accuracyBarStart=fm.boundingRect(accuracyText + "  ").right() + TEXT_LEFT_MARGIN;
        }
 
+        CDraw::drColor(Cfg::quietTextColor());
         renderText(TEXT_LEFT_MARGIN, y-4,0 ,accuracyText, m_timeRatingFont);
     }
 
@@ -244,6 +306,7 @@ void CGLView::drawDisplayText()
 
     y = Cfg::getAppHeight() - m_titleHeight;
 
+    CDraw::drColor(Cfg::quietTextColor());
     renderText(TEXT_LEFT_MARGIN, y+6, 0,tr("Song:") + " " + m_song->getSongTitle(), m_timeRatingFont);
     /*
     char buffer[100];
@@ -266,50 +329,34 @@ void CGLView::drawBarNumber()
     //CDraw::drColor (Cfg::backgroundColor());
     //CDraw::drColor (Cfg::noteColorDim());
     //glRectf(x+30+10, y-2, x + 80, y + 16);
-    CDraw::drColor(Cfg::textColor());
+    CDraw::drColor(Cfg::quietTextColor());
     renderText(x, y, 0, tr("Bar:") + " " + QString::number(m_song->getBarNumber()), m_timeRatingFont);
 }
 
 void CGLView::resizeGL(int width, int height)
 {
-    const int maxSoreWidth = 1024;
     const int staveEndGap = 20;
     const int heightAboveStave =  static_cast<int>(CStavePos::verticalNoteSpacing() * MAX_STAVE_INDEX);
     const int heightBelowStave =  static_cast<int>(CStavePos::verticalNoteSpacing() * - MIN_STAVE_INDEX);
-    const int minTitleHeight = 20;
-    const int minStaveGap = 120;
-    int staveGap;
-    int maxSoreHeight;
+    m_titleHeight = titleHeightFor(height);
 
-    //int space = height - (heightAboveStave + heightBelowStave + minTitleHeight + minStaveGap);
-    //m_titleHeight = qBound(minTitleHeight, minTitleHeight + space/2, 70);
-    // staveGap = qBound(minStaveGap, minStaveGap+ space/2, static_cast<int>(CStavePos::staveHeight() * 3));
-    if (height < 430)  // So it works on an eeepc 701 (for Trev)
-    {
-        staveGap = minStaveGap;
-        m_titleHeight = minTitleHeight;
-    }
-    else
-    {
-        staveGap = static_cast<int>(CStavePos::staveHeight() * 3);
-        m_titleHeight = 60;
-    }
-    maxSoreHeight = heightAboveStave + heightBelowStave + staveGap + m_titleHeight;
-    if (height > maxSoreHeight) {
-        int scoreExtraTopGap = (height - maxSoreHeight);
-        maxSoreHeight += qMin(200, scoreExtraTopGap);
-    }
-    int sizeX = qMin(width, maxSoreWidth);
-    int sizeY = qMin(height, maxSoreHeight);
-    int x = 0;
-    int y = (height - sizeY) - 5;
+    const int staveGap = staveGapFor(height);
+    int maxScoreHeight = heightAboveStave + heightBelowStave + staveGap + m_titleHeight;
+
+    if (height > maxScoreHeight)
+        maxScoreHeight += qMin(220, height - maxScoreHeight);
+
+    int sizeX = viewportWidthFor(width);
+    int sizeY = qMin(height, maxScoreHeight);
+    int x = (width - sizeX) / 2;
+    int y = qMax(0, height - sizeY - 8);
     glViewport (x, y, sizeX, sizeY);
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glOrtho(0, sizeX, 0, sizeY, -1.0, 1.0);
     glMatrixMode(GL_MODELVIEW);
-    CStavePos::setStaveCenterY(static_cast<float>(sizeY) - static_cast<float>(maxSoreHeight)/2.0f - static_cast<float>(m_titleHeight)/2.0f);
+    CStavePos::setStaveCenterY(static_cast<float>(sizeY) - static_cast<float>(maxScoreHeight)/2.0f - static_cast<float>(m_titleHeight)/2.0f);
     Cfg::setAppDimentions(x, y, sizeX, sizeY);
     Cfg::setStaveEndX(static_cast<float>(sizeX - staveEndGap));
     CStavePos::setStaveCentralOffset(static_cast<float>(staveGap)/2.0f);
@@ -326,37 +373,53 @@ void CGLView::mouseMoveEvent(QMouseEvent *event)
     Q_UNUSED(event)
 }
 
-void CGLView::initializeGL()
+void CGLView::configureOpenGl()
 {
-    CColor color = Cfg::backgroundColor();
-    glClearColor (color.red, color.green, color.blue, 0.0);
-    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
-    glShadeModel (GL_FLAT);
-    //glEnable(GL_TEXTURE_2D);                        // Enable Texture Mapping
-
-    //from initCheck();
-    glShadeModel(GL_FLAT);
-    //glEnable(GL_DEPTH_TEST);
-
+    CColor color = Cfg::appBackgroundColor();
+    glClearColor(color.red, color.green, color.blue, 0.0);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-    //glGenTextures(1, &texName);
-    //glBindTexture(GL_TEXTURE_2D, texName);
-
-    if (format().samples() > 0) {
+    glShadeModel(GL_FLAT);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_LINE_SMOOTH);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    if (format().samples() > 0)
         glEnable(GL_MULTISAMPLE);
-    }
-
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    //enableAntialiasedLines();
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+}
 
-    // This is a work around for Windows different display scaling option
-    int widgetPointSize = m_qtWindow->font().pointSize();
-    m_timeSigFont =  QFont("Arial", widgetPointSize*2 );
-    m_timeRatingFont =  QFont("Arial", static_cast<int>(widgetPointSize * 1.2) );
+void CGLView::drawBackgroundSurface()
+{
+    const float width = static_cast<float>(Cfg::getAppWidth());
+    const float height = static_cast<float>(Cfg::getAppHeight());
+    if (width <= 0.0f || height <= 0.0f)
+        return;
+
+    CDraw::drColorAlpha(Cfg::paperShadowColor(), 0.18f);
+    fillRect(12.0f, 5.0f, width - 4.0f, height - 15.0f);
+    CDraw::drColor(Cfg::backgroundColor());
+    fillRect(6.0f, 10.0f, width - 6.0f, height - 6.0f);
+    CDraw::drColorAlpha(Cfg::paperEdgeColor(), 0.16f);
+    fillRect(6.0f, height - static_cast<float>(m_titleHeight), width - 6.0f, height - 6.0f);
+    CDraw::drColorAlpha(Cfg::paperEdgeColor(), 0.70f);
+    glLineWidth(1.0f);
+    strokeRect(6.0f, 10.0f, width - 6.0f, height - 6.0f);
+}
+
+void CGLView::setTextFonts()
+{
+    m_timeSigFont = scaledSystemFont(m_qtWindow, 210, QFont::DemiBold);
+    m_timeRatingFont = scaledSystemFont(m_qtWindow, 112, QFont::Medium);
+}
+
+void CGLView::initializeGL()
+{
+    configureOpenGl();
+    setTextFonts();
 
     Cfg::setStaveEndX(400);        //This value get changed by the resizeGL func
 

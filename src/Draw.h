@@ -100,6 +100,7 @@ public:
     }
     static whichPart_t getDisplayHand()    {return m_displayHand;}
     static void drColor(CColor color) { glColor3f(color.red, color.green, color.blue);}
+    static void drColorAlpha(CColor color, float alpha) { glColor4f(color.red, color.green, color.blue, alpha);}
     static void forceCompileRedraw(int value = 1) {    m_forceCompileRedraw = value; }
 
 protected:

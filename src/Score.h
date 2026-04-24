@@ -139,6 +139,12 @@ protected:
     CPiano* m_piano;
 
 private:
+    void drawSynthesia(bool refresh);
+    qint64 currentSynthesiaTicks() const;
+    void collectSynthesiaKeyLights(CSynthesiaKeyLight *lights, int lightCount);
+    void drawSynthesiaKeyboard();
+    void drawSynthesiaNotes();
+
     CRating* m_rating;
     CScroll* m_scroll[MAX_MIDI_CHANNELS];
     int m_activeScroll;

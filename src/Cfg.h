@@ -72,22 +72,27 @@ typedef enum {
     PB_THEME_classicDark
 } theme_t;
 
+typedef enum {
+    PB_VIEW_MODE_score,
+    PB_VIEW_MODE_synthesia
+} viewMode_t;
+
 /*!
  * @brief   Contains all the configuration Information.
  */
 class Cfg
 {
 public:
-    static float staveStartX()         {return 20;}
+    static float staveStartX()         {return 32;}
     static float staveEndX()           {return m_staveEndX;}
-    static float playZoneX()           {return scrollStartX() + ( staveEndX() - scrollStartX())* 0.4f;}
-    static float clefX()               {return staveStartX() + 20;}
-    static float timeSignatureX()       {return clefX() + 25;}
-    static float keySignatureX()       {return timeSignatureX() + 25;}
-    static float scrollStartX()        {return keySignatureX() + 64;}
-    static float pianoX()              {return 25;}
+    static float playZoneX()           {return scrollStartX() + ( staveEndX() - scrollStartX())* 0.36f;}
+    static float clefX()               {return staveStartX() + 24;}
+    static float timeSignatureX()      {return clefX() + 32;}
+    static float keySignatureX()       {return timeSignatureX() + 34;}
+    static float scrollStartX()        {return keySignatureX() + 72;}
+    static float pianoX()              {return staveStartX();}
 
-    static float staveThickness()      {return 1;}
+    static float staveThickness()      {return 0.85f;}
 
     static int playZoneEarly()     {return m_playZoneEarly;}
     static int playZoneLate()      {return m_playZoneLate;}
@@ -102,6 +107,13 @@ public:
         m_theme = theme;
     }
     static int theme() {return m_theme;}
+    static void setViewMode(int mode)
+    {
+        if (mode < PB_VIEW_MODE_score || mode > PB_VIEW_MODE_synthesia)
+            mode = PB_VIEW_MODE_score;
+        m_viewMode = mode;
+    }
+    static int viewMode() {return m_viewMode;}
 
     static CColor menuColor()        {return CColor(0.1, 0.6, 0.6);}
     static CColor menuSelectedColor(){return CColor(0.7, 0.7, 0.1);}
@@ -125,6 +137,16 @@ public:
     static CColor playZoneFillColor()    {return themeColor(15);}
     static CColor playZoneCenterColor()  {return themeColor(16);}
     static CColor playZoneEdgeColor()    {return themeColor(17);}
+    static CColor appBackgroundColor()   {return themeColor(18);}
+    static CColor paperEdgeColor()       {return themeColor(19);}
+    static CColor paperShadowColor()     {return themeColor(20);}
+    static CColor quietTextColor()       {return themeColor(21);}
+    static CColor pianoWhiteKeyColor()   {return themeColor(22);}
+    static CColor pianoBlackKeyColor()   {return themeColor(23);}
+    static CColor pianoKeyEdgeColor()    {return themeColor(24);}
+    static CColor synthesiaRightColor()  {return themeColor(25);}
+    static CColor synthesiaLeftColor()   {return themeColor(26);}
+    static CColor synthesiaGridColor()   {return themeColor(27);}
     static CColor currentThemeColor(CColor color);
 
     static void setDefaults() {
@@ -167,6 +189,7 @@ private:
     static CColor themeColor(int role);
     static bool matchesThemeColor(int role, CColor color);
     static int m_theme;
+    static int m_viewMode;
     static float m_staveEndX;
     static int m_appX, m_appY, m_appWidth, m_appHeight;
     static const int m_playZoneEarly;
