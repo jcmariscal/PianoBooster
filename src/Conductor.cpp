@@ -1139,6 +1139,7 @@ void CConductor::rewind()
 {
     int chan;
 
+    m_realTimeEventBits = 0;
     for ( chan = 0; chan < MAX_MIDI_CHANNELS; chan++)
     {
         m_savedMainVolume[chan] = 100;

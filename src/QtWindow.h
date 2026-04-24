@@ -65,6 +65,7 @@ public:
         if ((eventBits & EVENT_BITS_playingStopped) != 0){
             if (m_sidePanel->isRepeatSong()){
                 m_topBar->on_playFromStartButton_clicked(true);
+                return;
             }else{
                 m_topBar->setPlayButtonState(false, true);
             }
