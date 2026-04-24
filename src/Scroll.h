@@ -103,6 +103,8 @@ private:
     };
 
     void compileSlot(CSlotDisplayList info);
+    void drawSynthesiaLayer(float strikeY, float topY, float leftX,
+                            float whiteKeyWidth, bool labels);
     bool validPianistChord(int index);
     bool insertSlots();
     void removeSlots();

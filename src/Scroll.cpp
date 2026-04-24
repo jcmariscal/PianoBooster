@@ -39,6 +39,7 @@
 
 namespace {
 constexpr float SynthesiaMinimumNoteHeight = 14.0f;
+constexpr float SynthesiaLabelMargin = 9.0f;
 constexpr int SynthesiaVisibleBeats = 8;
 
 struct SynthesiaNoteRect
@@ -182,6 +183,17 @@ void drawSynthesiaNote(const SynthesiaNoteRect& rect, float strikeY)
 bool noteTouchesStrikeLine(const SynthesiaNoteRect& rect, float strikeY)
 {
     return rect.valid && rect.bottom <= strikeY + 2.0f && rect.top >= strikeY;
+}
+
+bool shouldDrawSynthesiaLabel(const SynthesiaNoteRect& rect, CSettings *settings)
+{
+    return rect.valid && settings != nullptr && settings->synthesiaNoteNames();
+}
+
+float synthesiaLabelY(const SynthesiaNoteRect& rect, float strikeY, float topY)
+{
+    const float centerY = (rect.bottom + rect.top) / 2.0f;
+    return clampFloat(centerY, strikeY + SynthesiaLabelMargin, topY - SynthesiaLabelMargin);
 }
 
 void setKeyLight(CSynthesiaKeyLight *lights, int count, const SynthesiaNoteRect& rect)
@@ -348,6 +360,13 @@ void CScroll::drawSynthesiaNotes(float strikeY, float topY, float leftX, float w
     if (m_show == false)
         return;
 
+    drawSynthesiaLayer(strikeY, topY, leftX, whiteKeyWidth, false);
+    drawSynthesiaLayer(strikeY, topY, leftX, whiteKeyWidth, true);
+}
+
+void CScroll::drawSynthesiaLayer(float strikeY, float topY, float leftX,
+                                 float whiteKeyWidth, bool labels)
+{
     float startTicks = deltaAdjustF(m_deltaTail);
     for (int i = 0; i < m_scrollQueue->length(); ++i)
     {
@@ -356,9 +375,11 @@ void CScroll::drawSynthesiaNotes(float strikeY, float topY, float leftX, float w
         for (int j = 0; j < slot->length(); ++j) {
             const SynthesiaNoteRect rect = makeSynthesiaRect(
                         slot->getSymbol(j), startTicks, strikeY, topY, leftX, whiteKeyWidth);
-            drawSynthesiaNote(rect, strikeY);
-            if (rect.valid && m_settings->synthesiaNoteNames() && rect.top - rect.bottom >= 24.0f)
-                drawNoteName(rect.pitch, (rect.left + rect.right) / 2.0f, (rect.bottom + rect.top) / 2.0f, 0);
+            if (labels && shouldDrawSynthesiaLabel(rect, m_settings))
+                drawNoteName(rect.pitch, (rect.left + rect.right) / 2.0f,
+                             synthesiaLabelY(rect, strikeY, topY), PB_NOTE_LABEL_synthesia);
+            else if (!labels)
+                drawSynthesiaNote(rect, strikeY);
         }
     }
 }

@@ -47,7 +47,7 @@
 #include <QApplication>
 
 #define HORIZONTAL_SPACING_FACTOR   (0.75f) // defines the speed of the scrolling
-#define FONT_SIZE 16
+#define FONT_SIZE 18
 
 #include "StavePosition.h"
 
@@ -55,6 +55,12 @@
 
 class CSettings;
 class CSlot;
+
+typedef enum {
+    PB_NOTE_LABEL_context = 0,
+    PB_NOTE_LABEL_score = 1,
+    PB_NOTE_LABEL_synthesia = 2
+} noteLabelStyle_t;
 
 class CScrollProperties
 {
@@ -113,6 +119,7 @@ protected:
     void drawNoteName(int midiNote, float x, float y, int type);
 #ifndef NO_USE_FTGL
     void renderText(float x, float y, const char* s);
+    void renderLabelText(float x, float y, const char* s, bool synthesiaStyle);
 #endif
     CSettings* m_settings;
 

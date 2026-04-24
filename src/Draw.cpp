@@ -41,6 +41,8 @@ int CDraw::m_forceCompileRedraw;
 
 namespace {
 constexpr float NoteHeadRotation = -18.0f;
+constexpr float LabelHeight = 19.0f;
+constexpr float LabelPaddingX = 5.5f;
 constexpr float Pi = 3.14159265358979323846f;
 
 CColor learningPitchColor(int midiNote)
@@ -100,6 +102,40 @@ void drawVerticalBand(float x1, float x2, float topY, float bottomY, float alpha
 {
     CDraw::drColorAlpha(Cfg::playZoneFillColor(), alpha);
     glRectf(x1, topY, x2, bottomY);
+}
+
+bool synthesiaLabelStyle(int type)
+{
+    return type == PB_NOTE_LABEL_synthesia;
+}
+
+CColor labelTextColor(bool synthesiaStyle)
+{
+    if (synthesiaStyle)
+        return CColor(1.0, 0.99, 0.94);
+    return Cfg::noteNameColor();
+}
+
+#ifndef NO_USE_FTGL
+CColor labelHaloColor(bool synthesiaStyle)
+{
+    if (synthesiaStyle)
+        return CColor(0.02, 0.025, 0.03);
+    return Cfg::backgroundColor();
+}
+#endif
+
+void drawLabelPlate(float x, float y, float width, bool synthesiaStyle)
+{
+    const float left = x - width / 2.0f;
+    const float right = x + width / 2.0f;
+    const float top = y - LabelHeight / 2.0f;
+    const float bottom = y + LabelHeight / 2.0f;
+    const CColor fill = synthesiaStyle ? CColor(0.02, 0.025, 0.03) : Cfg::backgroundColor();
+    CDraw::drColorAlpha(Cfg::paperShadowColor(), synthesiaStyle ? 0.24f : 0.10f);
+    glRectf(left + 1.0f, top + 1.0f, right + 1.0f, bottom + 1.0f);
+    CDraw::drColorAlpha(fill, synthesiaStyle ? 0.40f : 0.76f);
+    glRectf(left, top, right, bottom);
 }
 
 #ifdef NO_USE_FTGL
@@ -252,6 +288,19 @@ void CDraw::renderText(float x, float y, const char* s)
   glRasterPos2f(x - w/2, y - h);
   font->Render(s);
 }
+
+void CDraw::renderLabelText(float x, float y, const char* s, bool synthesiaStyle)
+{
+    const CColor halo = labelHaloColor(synthesiaStyle);
+    const float alpha = synthesiaStyle ? 0.68f : 0.58f;
+    drColorAlpha(halo, alpha);
+    renderText(x - 1.0f, y, s);
+    renderText(x + 1.0f, y, s);
+    renderText(x, y - 1.0f, s);
+    renderText(x, y + 1.0f, s);
+    drColor(labelTextColor(synthesiaStyle));
+    renderText(x, y, s);
+}
 #endif
 
 QString noteLabelText(CSettings *settings, int midiNote, staveLookup_t item)
@@ -279,18 +328,21 @@ QString noteLabelText(CSettings *settings, int midiNote, staveLookup_t item)
 
 void CDraw::drawNoteName(int midiNote, float x, float y, int type)
 {
-    Q_UNUSED(type)
     // Ignore note that are too high
     if (midiNote > MIDI_TOP_C + 6)
         return;
 
     staveLookup_t item = CStavePos::midiNote2Name(midiNote);
+    const bool synthesiaStyle = synthesiaLabelStyle(type);
 
-    drColor(Cfg::noteNameColor());
+    drColor(labelTextColor(synthesiaStyle));
 
-    glLineWidth (1.0);
+    glLineWidth(synthesiaStyle ? 2.2f : 1.7f);
 
 #ifdef NO_USE_FTGL
+    const float plateWidth = m_settings != nullptr && m_settings->showNoteNumbers() ? 18.0f : 24.0f;
+    drawLabelPlate(x, y, plateWidth, synthesiaStyle);
+    drColor(labelTextColor(synthesiaStyle));
     if (m_settings != nullptr && m_settings->showNoteNumbers())
     {
         drawScaleDegreeNumber(CStavePos::midiNote2ScaleDegree(midiNote), x, y);
@@ -460,7 +512,9 @@ void CDraw::drawNoteName(int midiNote, float x, float y, int type)
     if(0<item.pianoNote && item.pianoNote < 8)
      {
       QString note = noteLabelText(m_settings, midiNote, item);
-      renderText(x, y, note.toUtf8().data());
+      const QByteArray text = note.toUtf8();
+      drawLabelPlate(x, y, font->Advance(text.constData()) + LabelPaddingX * 2.0f, synthesiaStyle);
+      renderLabelText(x, y, text.constData(), synthesiaStyle);
      }
 #endif
 }
@@ -472,7 +526,7 @@ void CDraw::drawStaveNoteName(CSymbol symbol, float x, float y)
     if (m_settings->showNoteNames() == false && m_settings->showNoteNumbers() == false)
         return;
     y += CStavePos::getVerticalNoteSpacing()*2 +3;
-    drawNoteName(symbol.getNote(), x, y, true);
+    drawNoteName(symbol.getNote(), x, y, PB_NOTE_LABEL_score);
 }
 
 void CDraw::checkAccidental(CSymbol symbol, float x, float y)
