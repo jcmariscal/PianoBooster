@@ -75,6 +75,7 @@ public:
     void rewind();
     void playFromStartBar();
     void seekToTick(qint64 tick);
+    void previewScoreTick(qint64 tick);
     void setPlayFromTick(qint64 tick);
 
     void setActiveHand(whichPart_t hand);

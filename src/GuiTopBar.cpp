@@ -161,8 +161,7 @@ void GuiTopBar::on_transposeSpin_valueChanged(int value)
 
 void GuiTopBar::setPlayButtonState(bool checked, bool atTheEnd)
 {
-    if (atTheEnd)
-        m_atTheEndOfTheSong = true;
+    m_atTheEndOfTheSong = atTheEnd;
 
     playButton->setChecked(checked);
     if (checked)

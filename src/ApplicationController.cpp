@@ -67,8 +67,10 @@ void ApplicationController::playFromStartBar()
 
 void ApplicationController::seekTick(qint64 tick)
 {
+    tick = boundedSongTick(tick);
     if (m_song != nullptr)
         m_song->seekToTick(tick);
+    m_scrollbarVisibleOriginTick = tick;
 }
 
 void ApplicationController::pcKeyPress(int key, bool down)
@@ -339,6 +341,8 @@ void ApplicationController::beginScrollbarDrag()
 void ApplicationController::updateScrollbarDrag(qint64 tick)
 {
     m_scrollbarVisibleOriginTick = boundedSongTick(tick);
+    if (m_song != nullptr)
+        m_song->previewScoreTick(m_scrollbarVisibleOriginTick);
 }
 
 void ApplicationController::finishScrollbarDrag(qint64 tick)
@@ -346,6 +350,7 @@ void ApplicationController::finishScrollbarDrag(qint64 tick)
     m_scrollbarVisibleOriginTick = boundedSongTick(tick);
     seekTick(m_scrollbarVisibleOriginTick);
     m_scrollbarDragging = false;
+    m_scrollbarFollowPlayback = true;
 }
 
 void ApplicationController::clickScrollbarSeek(qint64 tick)

@@ -473,6 +473,7 @@ void CGLView::timerEvent(QTimerEvent *event)
         m_qtWindow->songEventUpdated(m_eventBits);
         m_eventBits = 0;
     }
+    m_qtWindow->refreshScoreScrollbar();
 
     if( m_cfg_openGlOptimise == 0 ) // zero is no GlOptimise
         m_fullRedrawFlag = true;

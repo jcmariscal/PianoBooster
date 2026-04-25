@@ -33,6 +33,34 @@
 #include <QSurfaceFormat>
 #include <QStringBuilder>
 
+namespace {
+constexpr int ScoreScrollRange = 100000;
+
+int scrollValueForTick(qint64 tick, qint64 duration)
+{
+    if (duration <= 0)
+        return 0;
+    if (tick <= 0)
+        return 0;
+    if (tick >= duration)
+        return ScoreScrollRange;
+    return static_cast<int>(static_cast<double>(tick) *
+                            static_cast<double>(ScoreScrollRange) /
+                            static_cast<double>(duration) + 0.5);
+}
+
+qint64 tickForScrollValue(int value, qint64 duration)
+{
+    if (duration <= 0 || value <= 0)
+        return 0;
+    if (value >= ScoreScrollRange)
+        return duration;
+    return static_cast<qint64>(static_cast<double>(value) *
+                               static_cast<double>(duration) /
+                               static_cast<double>(ScoreScrollRange) + 0.5);
+}
+}
+
 #ifdef __linux__
 #ifndef USE_REALTIME_PRIORITY
 #define USE_REALTIME_PRIORITY 0
@@ -111,14 +139,22 @@ QtWindow::QtWindow()
 
     m_sidePanel = new GuiSidePanel(this, m_settings);
     m_topBar = new GuiTopBar(this, m_settings);
+    m_scoreScrollBar = new QScrollBar(Qt::Horizontal, this);
+    m_scoreScrollBar->setEnabled(false);
+    m_scoreScrollBar->setRange(0, 0);
+    m_scoreScrollBar->setSingleStep(1);
+    m_scoreScrollBar->setPageStep(1);
     m_tutorWindow = new QTextBrowser(this);
     m_tutorWindow->hide();
+    m_updatingScoreScrollbar = false;
+    m_scoreScrollbarDragging = false;
 
     m_settings->init(m_song, m_sidePanel, m_topBar);
 
     mainLayout->addWidget(m_sidePanel);
     columnLayout->addWidget(m_topBar);
     columnLayout->addWidget(m_glWidget);
+    columnLayout->addWidget(m_scoreScrollBar);
     columnLayout->addWidget(m_tutorWindow);
     mainLayout->addLayout(columnLayout);
 
@@ -126,6 +162,10 @@ QtWindow::QtWindow()
 
     m_sidePanel->init(m_controller, m_topBar);
     m_topBar->init(m_controller);
+    connect(m_scoreScrollBar, SIGNAL(sliderPressed()), this, SLOT(onScoreScrollPressed()));
+    connect(m_scoreScrollBar, SIGNAL(sliderMoved(int)), this, SLOT(onScoreScrollMoved(int)));
+    connect(m_scoreScrollBar, SIGNAL(sliderReleased()), this, SLOT(onScoreScrollReleased()));
+    connect(m_scoreScrollBar, SIGNAL(valueChanged(int)), this, SLOT(onScoreScrollChanged(int)));
 
     QWidget *centralWin = new QWidget();
     centralWin->setLayout(mainLayout);
@@ -173,6 +213,22 @@ void QtWindow::init()
 
     refreshTranslate();
     show();
+}
+
+void QtWindow::refreshScoreScrollbar()
+{
+    if (m_scoreScrollBar == nullptr || m_controller == nullptr || m_scoreScrollbarDragging)
+        return;
+
+    const ScoreScrollState state = m_controller->scrollbarState();
+    const bool enabled = state.durationTicks > 0;
+    m_updatingScoreScrollbar = true;
+    m_scoreScrollBar->setEnabled(enabled);
+    m_scoreScrollBar->setRange(0, enabled ? ScoreScrollRange : 0);
+    m_scoreScrollBar->setSingleStep(enabled ? qMax(1, ScoreScrollRange / 400) : 1);
+    m_scoreScrollBar->setPageStep(enabled ? qMax(1, ScoreScrollRange / 20) : 1);
+    m_scoreScrollBar->setValue(scrollValueForTick(state.currentTick, state.durationTicks));
+    m_updatingScoreScrollbar = false;
 }
 
 QtWindow::~QtWindow()
@@ -679,6 +735,53 @@ void QtWindow::onViewMode(QAction *action)
     m_settings->setValue("View/Mode", Cfg::viewMode());
     m_controller->invalidateScoreRendererCaches();
     m_glWidget->update();
+}
+
+void QtWindow::seekWithScoreScrollbar(int value)
+{
+    const ScoreScrollState state = m_controller->scrollbarState();
+    if (state.durationTicks <= 0)
+        return;
+
+    const qint64 tick = tickForScrollValue(value, state.durationTicks);
+    m_controller->seekTick(tick);
+    m_controller->forceScoreRedraw();
+    m_topBar->setPlayButtonState(m_controller->playing(), false);
+    m_glWidget->update();
+}
+
+void QtWindow::onScoreScrollPressed()
+{
+    m_scoreScrollbarDragging = true;
+    m_controller->beginScrollbarDrag();
+}
+
+void QtWindow::onScoreScrollMoved(int value)
+{
+    const ScoreScrollState state = m_controller->scrollbarState();
+    const qint64 tick = tickForScrollValue(value, state.durationTicks);
+    m_controller->updateScrollbarDrag(tick);
+    m_controller->forceScoreRedraw();
+    m_glWidget->update();
+}
+
+void QtWindow::onScoreScrollReleased()
+{
+    const ScoreScrollState state = m_controller->scrollbarState();
+    const qint64 tick = tickForScrollValue(m_scoreScrollBar->value(), state.durationTicks);
+    m_controller->finishScrollbarDrag(tick);
+    m_topBar->setPlayButtonState(m_controller->playing(), false);
+    m_scoreScrollbarDragging = false;
+    refreshScoreScrollbar();
+    m_glWidget->update();
+}
+
+void QtWindow::onScoreScrollChanged(int value)
+{
+    if (m_updatingScoreScrollbar || m_scoreScrollbarDragging)
+        return;
+    seekWithScoreScrollbar(value);
+    refreshScoreScrollbar();
 }
 
 // load the recent file list from the config file into the file menu

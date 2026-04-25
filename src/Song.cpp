@@ -431,6 +431,14 @@ void CSong::seekToTick(qint64 tick)
     forceScoreRedraw();
 }
 
+void CSong::previewScoreTick(qint64 tick)
+{
+    tick = boundedTick(tick, m_songData.durationTicks);
+    if (m_scoreWin != nullptr)
+        m_scoreWin->seekToTick(tick);
+    forceScoreRedraw();
+}
+
 void CSong::directSeekToPlayFromBar()
 {
     const qint64 targetTick = tickAtBarPosition(m_barMap, m_playFromBar);

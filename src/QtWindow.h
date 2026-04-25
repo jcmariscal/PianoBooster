@@ -62,6 +62,7 @@ public:
     ~QtWindow();
 
     void init();
+    void refreshScoreScrollbar();
 
     void songEventUpdated(eventBits_t eventBits)
     {
@@ -75,6 +76,7 @@ public:
         }
         if ((eventBits & EVENT_BITS_loadSong) != 0){
             m_topBar->setPlayButtonState(false, true);
+            refreshScoreScrollbar();
         }
     }
 
@@ -175,6 +177,10 @@ private slots:
     void on_splitHandsMode();
     void onTheme(QAction *action);
     void onViewMode(QAction *action);
+    void onScoreScrollPressed();
+    void onScoreScrollMoved(int value);
+    void onScoreScrollReleased();
+    void onScoreScrollChanged(int value);
 
 protected:
     void closeEvent(QCloseEvent *event);
@@ -200,11 +206,13 @@ private:
     void addViewModeMenu();
     void readSettings();
     void writeSettings();
+    void seekWithScoreScrollbar(int value);
 
     CSettings* m_settings;
 
     GuiSidePanel *m_sidePanel;
     GuiTopBar *m_topBar;
+    QScrollBar *m_scoreScrollBar;
     QTextBrowser *m_tutorWindow;
 
     QTranslator translator;
@@ -255,6 +263,8 @@ private:
     CScore* m_score;
     ApplicationController* m_controller;
     QAction *m_separatorAct;
+    bool m_updatingScoreScrollbar;
+    bool m_scoreScrollbarDragging;
 
     QAction *m_recentFileActs[maxRecentFiles()];
 };
