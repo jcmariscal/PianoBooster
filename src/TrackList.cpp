@@ -80,6 +80,22 @@ QList<int> CTrackList::findSplittableChannels()
             pianoChannels.append(chan);
     }
 
+    if (CNote::splitHandsCreateChannels())
+    {
+        QList<int> channelsWithHandTracks;
+        for (int i = 0; i < activeNonDrumChannels.count(); i++)
+        {
+            const int chan = activeNonDrumChannels.at(i);
+            if (m_midiChannels[chan].rightHandTrack() >= 0)
+                channelsWithHandTracks.append(chan);
+        }
+        if (channelsWithHandTracks.count() > 0)
+            return channelsWithHandTracks;
+        if (activeNonDrumChannels.count() == 1)
+            return activeNonDrumChannels;
+        return channels;
+    }
+
     if (activeNonDrumChannels.count() == 1)
     {
         return activeNonDrumChannels;

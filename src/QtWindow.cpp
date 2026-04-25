@@ -524,7 +524,16 @@ void QtWindow::createActions()
     m_splitHandsModeGroup->addAction(m_splitHandsVoicesAct);
     connect(m_splitHandsVoicesAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
 
-    if (CNote::splitHandsMode() == PB_SPLIT_HANDS_voices)
+    m_splitHandsCreateChannelsAct = new QAction(tr("Split by &Tracks"), this);
+    m_splitHandsCreateChannelsAct->setToolTip(tr("Use existing MIDI tracks to create virtual left and right hand channels"));
+    m_splitHandsCreateChannelsAct->setCheckable(true);
+    m_splitHandsCreateChannelsAct->setData(PB_SPLIT_HANDS_createChannels);
+    m_splitHandsModeGroup->addAction(m_splitHandsCreateChannelsAct);
+    connect(m_splitHandsCreateChannelsAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
+
+    if (CNote::splitHandsMode() == PB_SPLIT_HANDS_createChannels)
+        m_splitHandsCreateChannelsAct->setChecked(true);
+    else if (CNote::splitHandsMode() == PB_SPLIT_HANDS_voices)
         m_splitHandsVoicesAct->setChecked(true);
     else if (CNote::splitHandsMode() == PB_SPLIT_HANDS_cluster)
         m_splitHandsClusterAct->setChecked(true);
@@ -614,6 +623,7 @@ void QtWindow::createMenus()
     m_songMenu->setToolTipsVisible(true);
     m_songMenu->addAction(m_splitHandsAct);
     m_splitHandsConfigMenu = m_songMenu->addMenu(tr("Split-Hand &Configuration"));
+    m_splitHandsConfigMenu->addAction(m_splitHandsCreateChannelsAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsNaiveAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsCostAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsClusterAct);
@@ -699,6 +709,14 @@ void QtWindow::on_splitHandsMode()
 
     CNote::setSplitHandsMode(static_cast<splitHandsMode_t>(action->data().toInt()));
     m_settings->setValue("Song/SplitHandsMode", CNote::splitHandsMode());
+    if (CNote::splitHandsCreateChannels() && !CNote::splitHandsEnabled())
+    {
+        CNote::setSplitHands(true);
+        m_settings->setValue("Song/SplitHands", true);
+        bool wasBlocked = m_splitHandsAct->blockSignals(true);
+        m_splitHandsAct->setChecked(true);
+        m_splitHandsAct->blockSignals(wasBlocked);
+    }
 
     const QString songFile = m_settings->getCurrentSongLongFileName();
     if (songFile.isEmpty() || !QFile::exists(songFile))

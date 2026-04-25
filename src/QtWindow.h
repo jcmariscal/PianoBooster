@@ -247,6 +247,7 @@ private:
     QAction *m_splitHandsCostAct;
     QAction *m_splitHandsClusterAct;
     QAction *m_splitHandsVoicesAct;
+    QAction *m_splitHandsCreateChannelsAct;
     QActionGroup *m_splitHandsModeGroup;
 
     QMenu *m_fileMenu;

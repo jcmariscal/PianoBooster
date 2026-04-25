@@ -327,6 +327,12 @@ if(BUILD_TESTING)
     target_link_libraries(pianobooster_chord_timeline_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
     add_test(NAME pianobooster_chord_timeline_tests COMMAND pianobooster_chord_timeline_tests)
 
+    add_executable(pianobooster_chord_split_hand_tests
+        tests/ChordSplitHandTests.cpp Chord.cpp Bar.cpp Cfg.cpp
+        Util.cpp StavePosition.cpp tests/DrawStaticsTestStub.cpp tests/MidiFileStaticsTestStub.cpp)
+    target_link_libraries(pianobooster_chord_split_hand_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_chord_split_hand_tests COMMAND pianobooster_chord_split_hand_tests)
+
     add_executable(pianobooster_practice_engine_tests
         tests/PracticeEngineTests.cpp PracticeEngine.cpp Chord.cpp Bar.cpp Cfg.cpp
         Util.cpp StavePosition.cpp tests/DrawStaticsTestStub.cpp tests/MidiFileStaticsTestStub.cpp)

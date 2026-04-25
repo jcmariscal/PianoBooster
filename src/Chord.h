@@ -52,7 +52,8 @@ typedef enum
     PB_SPLIT_HANDS_naive,
     PB_SPLIT_HANDS_cost,
     PB_SPLIT_HANDS_cluster,
-    PB_SPLIT_HANDS_voices
+    PB_SPLIT_HANDS_voices,
+    PB_SPLIT_HANDS_createChannels
 } splitHandsMode_t;
 
 struct CSplitHandNote
@@ -113,9 +114,15 @@ public:
     static whichPart_t getActiveHand(){return m_activeHand;}
     static void setSplitHands(bool enabled){m_splitHands = enabled;}
     static bool splitHandsEnabled(){return m_splitHands;}
-    static void setSplitHandsMode(splitHandsMode_t mode){m_splitHandsMode = (mode >= PB_SPLIT_HANDS_naive && mode <= PB_SPLIT_HANDS_voices) ? mode : PB_SPLIT_HANDS_naive;}
+    static void setSplitHandsMode(splitHandsMode_t mode)
+    {
+        if (mode < PB_SPLIT_HANDS_naive || mode > PB_SPLIT_HANDS_createChannels)
+            mode = PB_SPLIT_HANDS_naive;
+        m_splitHandsMode = mode;
+    }
     static splitHandsMode_t splitHandsMode(){return m_splitHandsMode;}
     static bool splitHandsNaive(){return m_splitHandsMode == PB_SPLIT_HANDS_naive;}
+    static bool splitHandsCreateChannels(){return m_splitHandsMode == PB_SPLIT_HANDS_createChannels;}
     static bool splitHandsForChannel(int channel)
     {
         if (!m_splitHands)

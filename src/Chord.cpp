@@ -810,7 +810,8 @@ void CNote::clearSplitHandAssignments()
 void CNote::assignSplitHands(const QVector<CSplitHandNote>& notes)
 {
     clearSplitHandAssignments();
-    if (notes.isEmpty() || CNote::splitHandsMode() == PB_SPLIT_HANDS_naive)
+    if (notes.isEmpty() || CNote::splitHandsMode() == PB_SPLIT_HANDS_naive ||
+            CNote::splitHandsCreateChannels())
         return;
 
     QVector<whichPart_t> labels;
@@ -879,11 +880,14 @@ whichPart_t CNote::findHand(CMidiEvent midi, int whichChannel, whichPart_t which
     int midiNote = midi.note();
     int midiChannel = midi.channel();
     whichPart_t hand = PB_PART_none;
+    const bool splitHandsForBothChannels =
+            CNote::splitHandsForChannel(whichChannel) &&
+            CNote::splitHandsForChannel(midiChannel);
     // exit if it is not for this channel
     if (midiChannel != whichChannel)
     {
         // return none if this is not being used with the other hand.
-        if (!(CNote::splitHandsForChannel(whichChannel) && CNote::splitHandsForChannel(midiChannel)) &&
+        if (!splitHandsForBothChannels &&
                 (CNote::hasPianoPart(whichChannel) == false || CNote::hasPianoPart(midiChannel) == false))
             return PB_PART_none;
     }
@@ -892,7 +896,11 @@ whichPart_t CNote::findHand(CMidiEvent midi, int whichChannel, whichPart_t which
     const bool sameHandChannel = midiChannel == CNote::leftHandChan() &&
             midiChannel == CNote::rightHandChan();
 
-    if (CNote::splitHandsForChannel(whichChannel) && CNote::splitHandsForChannel(midiChannel)) {
+    if (CNote::splitHandsCreateChannels() &&
+            splitHandsForBothChannels &&
+            rightHandTrack >= 0) {
+        hand = (midi.track() == rightHandTrack) ? PB_PART_right : PB_PART_left;
+    } else if (splitHandsForBothChannels) {
         hand = g_splitHandAssignments.value(
                     splitNoteKey(midi.absoluteTime(), midi.channel(), midi.track(), midi.originalNote()),
                     CNote::splitHandForPitch(midiNote, MIDDLE_C));
