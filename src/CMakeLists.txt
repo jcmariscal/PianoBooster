@@ -127,8 +127,9 @@ endif(WITH_INTERNAL_FLUIDSYNTH)
 # (CMAKE_BINARY_DIR holds a path to the build directory, while INCLUDE_DIRECTORIES() works just like INCLUDEPATH from qmake)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_BINARY_DIR} ${OPENGL_INCLUDE_DIR} ${FTGL_INCLUDE_DIR})
 
-SET(PB_BASE_SRCS MidiFile.cpp MidiTrack.cpp Song.cpp Conductor.cpp Util.cpp
-    Chord.cpp Tempo.cpp MidiDevice.cpp MidiDeviceRt.cpp ${PB_BASE_SRCS})
+SET(PB_BASE_SRCS MidiFile.cpp MidiTrack.cpp Song.cpp Conductor.cpp Util.cpp ApplicationController.cpp NotationBuilder.cpp ScoreIndex.cpp
+    NoteIndex.cpp ChordTimeline.cpp PracticeEngine.cpp PracticeState.cpp
+    Chord.cpp Tempo.cpp MidiDevice.cpp MidiDeviceRt.cpp PlaybackCursor.cpp MidiState.cpp ${PB_BASE_SRCS})
 SET(PB_BASE_HDR MidiFile.h MidiTrack.h Song.h Conductor.h Rating.h Util.h
     Chord.h Tempo.h MidiDevice.h)
 
@@ -182,11 +183,11 @@ SET( PIANOBOOSTER_SRCS
     Cfg.cpp
     Piano.cpp
     Draw.cpp
-    Scroll.cpp
     Notation.cpp
     TrackList.cpp
     Rating.cpp
     Bar.cpp
+    BarMap.cpp
     Settings.cpp
     Merge.cpp
     pianobooster.rc
@@ -274,6 +275,74 @@ else()
     target_link_directories(pianobooster PUBLIC ${FTGL_LIBRARY_DIRS} ${JACK_LIBRARY_DIRS} ${FLUIDSYNTH_LIBRARY_DIRS})
 endif()
 target_link_libraries (pianobooster ${QT_LIBS} ${OPENGL_LIBRARIES} ${FTGL_LIBRARY} ${RTMIDI_LIBRARIES} ${JACK_LIBRARY} ${FLUIDSYNTH_LIBRARY} ${RTMIDI_LIBRARY})
+
+option(BUILD_TESTING "Build non-GUI test executables" ON)
+if(BUILD_TESTING)
+    enable_testing()
+    add_executable(pianobooster_bar_tests tests/BarTests.cpp Bar.cpp Util.cpp Cfg.cpp)
+    target_link_libraries(pianobooster_bar_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_bar_tests COMMAND pianobooster_bar_tests)
+
+    add_executable(pianobooster_song_data_tests tests/SongDataTests.cpp)
+    target_link_libraries(pianobooster_song_data_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_song_data_tests COMMAND pianobooster_song_data_tests)
+
+    add_executable(pianobooster_bar_map_tests tests/BarMapTests.cpp BarMap.cpp Bar.cpp Util.cpp Cfg.cpp)
+    target_link_libraries(pianobooster_bar_map_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_bar_map_tests COMMAND pianobooster_bar_map_tests)
+
+    add_executable(pianobooster_transport_state_tests tests/TransportStateTests.cpp)
+    target_link_libraries(pianobooster_transport_state_tests ${QT_PACKAGE_NAME}::Core)
+    add_test(NAME pianobooster_transport_state_tests COMMAND pianobooster_transport_state_tests)
+
+    add_executable(pianobooster_playback_cursor_tests tests/PlaybackCursorTests.cpp PlaybackCursor.cpp)
+    target_link_libraries(pianobooster_playback_cursor_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_playback_cursor_tests COMMAND pianobooster_playback_cursor_tests)
+
+    add_executable(pianobooster_midi_state_tests tests/MidiStateTests.cpp MidiState.cpp)
+    target_link_libraries(pianobooster_midi_state_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_midi_state_tests COMMAND pianobooster_midi_state_tests)
+
+    add_executable(pianobooster_score_slot_tests tests/ScoreSlotTests.cpp)
+    target_link_libraries(pianobooster_score_slot_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_score_slot_tests COMMAND pianobooster_score_slot_tests)
+
+    add_executable(pianobooster_notation_builder_tests
+        tests/NotationBuilderTests.cpp NotationBuilder.cpp Notation.cpp BarMap.cpp Chord.cpp
+        Bar.cpp Cfg.cpp Util.cpp StavePosition.cpp tests/DrawStaticsTestStub.cpp)
+    target_link_libraries(pianobooster_notation_builder_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_notation_builder_tests COMMAND pianobooster_notation_builder_tests)
+
+    add_executable(pianobooster_score_index_tests tests/ScoreIndexTests.cpp ScoreIndex.cpp)
+    target_link_libraries(pianobooster_score_index_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_score_index_tests COMMAND pianobooster_score_index_tests)
+
+    add_executable(pianobooster_note_index_tests tests/NoteIndexTests.cpp NoteIndex.cpp)
+    target_link_libraries(pianobooster_note_index_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_note_index_tests COMMAND pianobooster_note_index_tests)
+
+    add_executable(pianobooster_chord_timeline_tests
+        tests/ChordTimelineTests.cpp ChordTimeline.cpp Chord.cpp Bar.cpp Cfg.cpp
+        Util.cpp StavePosition.cpp tests/DrawStaticsTestStub.cpp tests/MidiFileStaticsTestStub.cpp)
+    target_link_libraries(pianobooster_chord_timeline_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_chord_timeline_tests COMMAND pianobooster_chord_timeline_tests)
+
+    add_executable(pianobooster_practice_engine_tests
+        tests/PracticeEngineTests.cpp PracticeEngine.cpp Chord.cpp Bar.cpp Cfg.cpp
+        Util.cpp StavePosition.cpp tests/DrawStaticsTestStub.cpp tests/MidiFileStaticsTestStub.cpp)
+    target_link_libraries(pianobooster_practice_engine_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_practice_engine_tests COMMAND pianobooster_practice_engine_tests)
+
+    add_executable(pianobooster_practice_state_tests
+        tests/PracticeStateTests.cpp PracticeState.cpp Chord.cpp Bar.cpp Cfg.cpp
+        Util.cpp StavePosition.cpp tests/DrawStaticsTestStub.cpp tests/MidiFileStaticsTestStub.cpp)
+    target_link_libraries(pianobooster_practice_state_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_practice_state_tests COMMAND pianobooster_practice_state_tests)
+
+    add_executable(pianobooster_score_viewport_tests tests/ScoreViewportTests.cpp)
+    target_link_libraries(pianobooster_score_viewport_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_score_viewport_tests COMMAND pianobooster_score_viewport_tests)
+endif(BUILD_TESTING)
 
 if(NOT APPLE)
     INSTALL( FILES ../pianobooster.desktop DESTINATION share/applications )

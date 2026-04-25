@@ -31,14 +31,16 @@
 
 #include <QRegExp> // deprecated, from compat module in Qt 6
 
+#include "ApplicationController.h"
 #include "GuiPreferencesDialog.h"
 #include "GlView.h"
+#include "Settings.h"
 
 GuiPreferencesDialog::GuiPreferencesDialog(QWidget *parent)
     : QDialog(parent)
 {
     setupUi(this);
-    m_song = nullptr;
+    m_controller = nullptr;
     m_settings = nullptr;
     m_glView = nullptr;
     setWindowTitle(tr("Preferences"));
@@ -139,13 +141,13 @@ void GuiPreferencesDialog::initLanguageCombo(){
 #endif
 }
 
-void GuiPreferencesDialog::init(CSong* song, CSettings* settings, CGLView * glView)
+void GuiPreferencesDialog::init(ApplicationController* controller, CSettings* settings, CGLView * glView)
 {
-    m_song = song;
+    m_controller = controller;
     m_settings = settings;
     m_glView = glView;
 
-    timingMarkersCheck->setChecked(m_song->cfg_timingMarkersFlag);
+    timingMarkersCheck->setChecked(m_controller->timingMarkers());
     showNoteNamesCheck->setChecked(m_settings->isNoteNamesEnabled());
     showNoteNumbersCheck->setChecked(m_settings->isNoteNumbersEnabled());
     courtesyAccidentalsCheck->setChecked(m_settings->displayCourtesyAccidentals());
@@ -155,15 +157,16 @@ void GuiPreferencesDialog::init(CSong* song, CSettings* settings, CGLView * glVi
     synthesiaNoteNamesCheck->setChecked(m_settings->isSynthesiaNoteNamesEnabled());
     synthesiaBeatGuidesCheck->setChecked(m_settings->isSynthesiaBeatGuidesEnabled());
 
-    followStopPointCombo->setCurrentIndex(m_song->cfg_stopPointMode);
+    followStopPointCombo->setCurrentIndex(m_controller->stopPointMode());
 
     initLanguageCombo();
 }
 
 void GuiPreferencesDialog::accept()
 {
-    m_song->cfg_timingMarkersFlag = timingMarkersCheck->isChecked();
-    m_settings->setValue("Score/TimingMarkers", m_song->cfg_timingMarkersFlag );
+    const bool timingMarkers = timingMarkersCheck->isChecked();
+    m_controller->setTimingMarkers(timingMarkers);
+    m_settings->setValue("Score/TimingMarkers", timingMarkers);
     m_settings->setNoteNamesEnabled( showNoteNamesCheck->isChecked());
     m_settings->setNoteNumbersEnabled(showNoteNumbersCheck->isChecked());
     m_settings->setCourtesyAccidentals( courtesyAccidentalsCheck->isChecked());
@@ -172,12 +175,13 @@ void GuiPreferencesDialog::accept()
     m_settings->setColoredNotes( showColoredNotesCheck->isChecked());
     m_settings->setSynthesiaNoteNamesEnabled(synthesiaNoteNamesCheck->isChecked());
     m_settings->setSynthesiaBeatGuidesEnabled(synthesiaBeatGuidesCheck->isChecked());
-    m_song->cfg_stopPointMode = static_cast<stopPointMode_t> (followStopPointCombo->currentIndex());
-    m_settings->setValue("Score/StopPointMode", m_song->cfg_stopPointMode );
+    stopPointMode_t stopPointMode = static_cast<stopPointMode_t>(followStopPointCombo->currentIndex());
+    m_controller->setStopPointMode(stopPointMode);
+    m_settings->setValue("Score/StopPointMode", stopPointMode);
 
     m_settings->setValue("General/lang", languageCombo->currentData().toString());
 
-    m_song->refreshScroll();
+    m_controller->invalidateActiveScoreCache();
 
     this->QDialog::accept();
 }

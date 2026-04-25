@@ -34,21 +34,17 @@
 
 CMidiDevice::CMidiDevice()
 {
-    m_rtMidiDevice = new CMidiDeviceRt();
+    m_rtMidiDevice.reset(new CMidiDeviceRt());
 #if WITH_INTERNAL_FLUIDSYNTH
-    m_fluidSynthMidiDevice = new CMidiDeviceFluidSynth();
+    m_fluidSynthMidiDevice.reset(new CMidiDeviceFluidSynth());
 #endif
-    m_selectedMidiInputDevice = m_rtMidiDevice;
-    m_selectedMidiOutputDevice = m_rtMidiDevice;
+    m_selectedMidiInputDevice = m_rtMidiDevice.get();
+    m_selectedMidiOutputDevice = m_rtMidiDevice.get();
     m_validOutput = false;
 }
 
 CMidiDevice::~CMidiDevice()
 {
-    delete m_rtMidiDevice;
-#if WITH_INTERNAL_FLUIDSYNTH
-    delete m_fluidSynthMidiDevice;
-#endif
 }
 
 void CMidiDevice::init()
@@ -78,7 +74,7 @@ bool CMidiDevice::openMidiPort(midiType_t type, const QString &portName)
     {
         if (m_rtMidiDevice->openMidiPort(type, portName))
         {
-            m_selectedMidiOutputDevice = m_rtMidiDevice;
+            m_selectedMidiOutputDevice = m_rtMidiDevice.get();
             return true;
         }
     }
@@ -89,14 +85,14 @@ bool CMidiDevice::openMidiPort(midiType_t type, const QString &portName)
         //m_selectedMidiOutputDevice->closeMidiPort(type, portName);
         if ( m_rtMidiDevice->openMidiPort(type, portName) )
         {
-            m_selectedMidiOutputDevice = m_rtMidiDevice;
+            m_selectedMidiOutputDevice = m_rtMidiDevice.get();
             m_validOutput = true;
             return true;
         }
 #if WITH_INTERNAL_FLUIDSYNTH
         if ( m_fluidSynthMidiDevice->openMidiPort(type, portName) )
         {
-            m_selectedMidiOutputDevice = m_fluidSynthMidiDevice;
+            m_selectedMidiOutputDevice = m_fluidSynthMidiDevice.get();
             m_validOutput = true;
             return true;
         }

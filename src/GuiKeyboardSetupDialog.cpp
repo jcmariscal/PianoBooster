@@ -29,21 +29,25 @@
 #include <QtWidgets>
 
 
+#include "ApplicationController.h"
+#include "Chord.h"
 #include "GuiKeyboardSetupDialog.h"
+#include "Settings.h"
+#include "TrackList.h"
 
 #include "rtmidi/RtMidi.h"
 
 GuiKeyboardSetupDialog::GuiKeyboardSetupDialog(QWidget *parent)
     : QDialog(parent)
 {
-    m_song = nullptr;
+    m_controller = nullptr;
     setupUi(this);
     setWindowTitle(tr("Piano Keyboard Settings"));
 }
 
-void GuiKeyboardSetupDialog::init(CSong* song, CSettings* settings)
+void GuiKeyboardSetupDialog::init(ApplicationController* controller, CSettings* settings)
 {
-    m_song = song;
+    m_controller = controller;
     m_settings = settings;
 
     // Check inputs.
@@ -109,6 +113,35 @@ void GuiKeyboardSetupDialog::updateInfoText()
     keyboardInfoText->append(str);
 }
 
+void GuiKeyboardSetupDialog::on_rightTestButton_pressed()
+{
+    m_controller->testWrongNoteSound(false);
+    m_controller->pcKeyPress('x', true);
+}
+
+void GuiKeyboardSetupDialog::on_rightTestButton_released()
+{
+    m_controller->pcKeyPress('x', false);
+}
+
+void GuiKeyboardSetupDialog::on_wrongTestButton_pressed()
+{
+    m_controller->testWrongNoteSound(true);
+    m_controller->pcKeyPress('x', true);
+}
+
+void GuiKeyboardSetupDialog::on_wrongTestButton_released()
+{
+    m_controller->pcKeyPress('x', false);
+}
+
+void GuiKeyboardSetupDialog::updateSounds()
+{
+    m_controller->setPianoSoundPatches(rightSoundCombo->currentIndex() - 1,
+                                       wrongSoundCombo->currentIndex() - 1,
+                                       true);
+}
+
 void GuiKeyboardSetupDialog::keyPressEvent ( QKeyEvent * event )
 {
     if (event->text().length() == 0)
@@ -118,7 +151,7 @@ void GuiKeyboardSetupDialog::keyPressEvent ( QKeyEvent * event )
         return;
 
     int c = event->text().toLatin1().at(0);
-    m_song->pcKeyPress( c, true);
+    m_controller->pcKeyPress(c, true);
 }
 
 void GuiKeyboardSetupDialog::keyReleaseEvent ( QKeyEvent * event )
@@ -130,7 +163,7 @@ void GuiKeyboardSetupDialog::keyReleaseEvent ( QKeyEvent * event )
         return;
 
     int c = event->text().toLatin1().at(0);
-    m_song->pcKeyPress( c, false);
+    m_controller->pcKeyPress(c, false);
 }
 
 
@@ -149,17 +182,19 @@ void GuiKeyboardSetupDialog::accept()
         m_settings->setValue("Keyboard/LowestNote", lowestNote);
         m_settings->setValue("Keyboard/HighestNote", highestNote);
     }
-    m_song->testWrongNoteSound(false);
-    m_song->regenerateChordQueue();
+    m_controller->testWrongNoteSound(false);
+    m_controller->regenerateChordTimeline();
     this->QDialog::accept();
 }
 
 
 void GuiKeyboardSetupDialog::reject()
 {
-    m_song->testWrongNoteSound(false);
-    m_song->setPianoSoundPatches(m_settings->value("Keyboard/RightSound", Cfg::defaultRightPatch()).toInt() - 1,
-                                 m_settings->value("Keyboard/WrongSound", Cfg::defaultWrongPatch()).toInt() - 1, true);
+    m_controller->testWrongNoteSound(false);
+    m_controller->setPianoSoundPatches(
+                m_settings->value("Keyboard/RightSound", Cfg::defaultRightPatch()).toInt() - 1,
+                m_settings->value("Keyboard/WrongSound", Cfg::defaultWrongPatch()).toInt() - 1,
+                true);
 
     this->QDialog::reject();
 }

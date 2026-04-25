@@ -96,11 +96,15 @@ QtWindow::QtWindow()
 
     QSurfaceFormat::setDefaultFormat(fmt);
 
-    m_glWidget = new CGLView(this, m_settings);
+    m_songOwner.reset(new CSong());
+    m_scoreOwner.reset(new CScore(m_settings));
+    m_song = m_songOwner.get();
+    m_score = m_scoreOwner.get();
+
+    m_glWidget = new CGLView(this, m_settings, m_song, m_score);
     m_glWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    m_song = m_glWidget->getSongObject();
-    m_score = m_glWidget->getScoreObject();
+    m_controller = new ApplicationController(m_song, m_settings);
 
     QHBoxLayout *mainLayout = new QHBoxLayout;
     QVBoxLayout *columnLayout = new QVBoxLayout;
@@ -120,8 +124,8 @@ QtWindow::QtWindow()
 
     m_song->init2(m_score, m_settings);
 
-    m_sidePanel->init(m_song, m_song->getTrackList(), m_topBar);
-    m_topBar->init(m_song);
+    m_sidePanel->init(m_controller, m_topBar);
+    m_topBar->init(m_controller);
 
     QWidget *centralWin = new QWidget();
     centralWin->setLayout(mainLayout);
@@ -130,24 +134,32 @@ QtWindow::QtWindow()
 
     m_glWidget->setFocus(Qt::ActiveWindowFocusReason);
 
-    m_song->setPianoSoundPatches(m_settings->value("Keyboard/RightSound", Cfg::defaultRightPatch()).toInt() - 1,
-                                 m_settings->value("Keyboard/WrongSound", Cfg::defaultWrongPatch()).toInt() - 1, true);
+    m_controller->setPianoSoundPatches(
+                m_settings->value("Keyboard/RightSound", Cfg::defaultRightPatch()).toInt() - 1,
+                m_settings->value("Keyboard/WrongSound", Cfg::defaultWrongPatch()).toInt() - 1,
+                true);
 
-    m_song->setLatencyFix(m_settings->value("Midi/Latency", 0).toInt());
+    m_controller->setLatencyFix(m_settings->value("Midi/Latency", 0).toInt());
 
-    m_song->cfg_timingMarkersFlag = m_settings->value("Score/TimingMarkers", m_song->cfg_timingMarkersFlag ).toBool();
-    m_song->cfg_stopPointMode = static_cast<stopPointMode_t> (m_settings->value("Score/StopPointMode", m_song->cfg_stopPointMode ).toInt());
-    m_song->cfg_rhythmTapping = static_cast<rhythmTapping_t> (m_settings->value("Score/RtyhemTappingMode", m_song->cfg_rhythmTapping ).toInt());
+    m_controller->setTimingMarkers(
+                m_settings->value("Score/TimingMarkers", m_controller->timingMarkers()).toBool());
+    m_controller->setStopPointMode(static_cast<stopPointMode_t>(
+                m_settings->value("Score/StopPointMode", m_controller->stopPointMode()).toInt()));
+    m_controller->setRhythmTappingMode(static_cast<rhythmTapping_t>(
+                m_settings->value("Score/RtyhemTappingMode",
+                                  m_controller->rhythmTappingMode()).toInt()));
 
-    m_song->reconnectMidi();
+    m_controller->reconnectMidi();
 
     readSettings();
 
     QTimer::singleShot(100, this, [&](){
         QString songName = m_settings->value("CurrentSong").toString();
         if (!songName.isEmpty())
-            m_settings->openSongFile( songName );
+            m_controller->openSongFile(songName);
     });
+
+    init();
 }
 
 void QtWindow::init()
@@ -165,6 +177,9 @@ void QtWindow::init()
 
 QtWindow::~QtWindow()
 {
+    if (m_glWidget != nullptr)
+        m_glWidget->stopTimerEvent();
+    delete m_controller;
     delete m_settings;
 }
 
@@ -585,7 +600,7 @@ void QtWindow::openRecentFile()
 {
     QAction *action = qobject_cast<QAction *>(sender());
      if (action)
-         m_settings->openSongFile(action->data().toString());
+         m_controller->openSongFile(action->data().toString());
 }
 
 void QtWindow::showMidiSetup(){
@@ -594,9 +609,9 @@ void QtWindow::showMidiSetup(){
 
     m_glWidget->stopTimerEvent();
     GuiMidiSetupDialog midiSetupDialog(this);
-    midiSetupDialog.init(m_song, m_settings);
+    midiSetupDialog.init(m_controller, m_settings);
     midiSetupDialog.exec();
-    m_song->flushMidiInput();
+    m_controller->flushMidiInput();
     m_glWidget->startTimerEvent();
 }
 
@@ -609,15 +624,15 @@ void QtWindow::on_splitHands(bool checked)
     if (songFile.isEmpty() || !QFile::exists(songFile))
         return;
 
-    if (m_song->playingMusic())
+    if (m_controller->playing())
     {
-        m_song->playMusic(false);
+        m_controller->pause();
         m_topBar->setPlayButtonState(false);
     }
 
-    m_song->rewind();
+    m_controller->rewind();
     m_sidePanel->refresh();
-    m_song->forceScoreRedraw();
+    m_controller->forceScoreRedraw();
 }
 
 void QtWindow::on_splitHandsMode()
@@ -633,15 +648,15 @@ void QtWindow::on_splitHandsMode()
     if (songFile.isEmpty() || !QFile::exists(songFile))
         return;
 
-    if (m_song->playingMusic())
+    if (m_controller->playing())
     {
-        m_song->playMusic(false);
+        m_controller->pause();
         m_topBar->setPlayButtonState(false);
     }
 
-    m_song->rewind();
+    m_controller->rewind();
     m_sidePanel->refresh();
-    m_song->forceScoreRedraw();
+    m_controller->forceScoreRedraw();
 }
 
 void QtWindow::onTheme(QAction *action)
@@ -651,9 +666,7 @@ void QtWindow::onTheme(QAction *action)
 
     Cfg::setTheme(action->data().toInt());
     m_settings->setValue("View/Theme", Cfg::theme());
-    CDraw::forceCompileRedraw();
-    m_score->refreshScroll();
-    m_song->forceScoreRedraw();
+    m_controller->invalidateScoreRendererCaches();
     m_glWidget->update();
 }
 
@@ -664,9 +677,7 @@ void QtWindow::onViewMode(QAction *action)
 
     Cfg::setViewMode(action->data().toInt());
     m_settings->setValue("View/Mode", Cfg::viewMode());
-    CDraw::forceCompileRedraw();
-    m_score->refreshScroll();
-    m_song->forceScoreRedraw();
+    m_controller->invalidateScoreRendererCaches();
     m_glWidget->update();
 }
 
@@ -737,7 +748,7 @@ void QtWindow::help()
 
     tr("<p>PianoBooster now includes a built-in sound generator called FluidSynth "
     "which requires a General MIDI (GM) SoundFont. "
-    "Use the ‘Setup/MIDI Setup’ menu option and then the load button on the FluidSynth tab to install the SoundFont.</p>")   %
+    "Use the 'Setup/MIDI Setup' menu option and then the load button on the FluidSynth tab to install the SoundFont.</p>")   %
 
     tr("<p>PianoBooster works best with MIDI files that have separate left and right piano parts "
        "using MIDI channels 3 and 4.") %
@@ -846,10 +857,10 @@ void QtWindow::open()
     const auto fileName = QFileDialog::getOpenFileName(this,tr("Open MIDI File"),
                             dir, tr("MIDI Files") + " (*.mid *.MID *.midi *.MIDI *.kar *.KAR)");
     if (!fileName.isEmpty()) {
-        m_settings->openSongFile(fileName);
+        m_controller->openSongFile(fileName);
         setCurrentFile(fileName);
     }
-    m_song->flushMidiInput();
+    m_controller->flushMidiInput();
     m_glWidget->startTimerEvent();
 }
 
@@ -871,10 +882,8 @@ void QtWindow::writeSettings()
 void QtWindow::closeEvent(QCloseEvent *event)
 {
     Q_UNUSED(event)
-    if (m_song->playingMusic())
-    {
-        m_song->playMusic(false);
-    }
+    if (m_controller->playing())
+        m_controller->pause();
 
     writeSettings();
 }
@@ -891,7 +900,7 @@ void QtWindow::keyPressEvent ( QKeyEvent * event )
         return;
 
     int c = event->text().toLatin1().at(0);
-    m_song->pcKeyPress( c, true);
+    m_controller->pcKeyPress(c, true);
 }
 
 void QtWindow::keyReleaseEvent ( QKeyEvent * event )
@@ -903,7 +912,7 @@ void QtWindow::keyReleaseEvent ( QKeyEvent * event )
         return;
 
     int c = event->text().toLatin1().at(0);
-    m_song->pcKeyPress( c, false);
+    m_controller->pcKeyPress(c, false);
 }
 
 void QtWindow::loadTutorHtml(const QString & name)

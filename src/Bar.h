@@ -100,6 +100,11 @@ public:
     }
 
     bool seekingBarNumber() { return m_seekingBarNumber;}
+    void clearSeeking()
+    {
+        m_seekingBarNumber = false;
+        m_flushTicks = false;
+    }
 
     // get and reset the current bar event bits
     eventBits_t readEventBits() {
@@ -141,4 +146,3 @@ private:
 };
 
 #endif  // __BAR_H__
-

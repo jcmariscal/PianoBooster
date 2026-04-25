@@ -102,7 +102,6 @@ public:
     static void setDisplayHand(whichPart_t hand)
     {
         m_displayHand = hand;
-        m_forceCompileRedraw = 1;
     }
     static whichPart_t getDisplayHand()    {return m_displayHand;}
     static void drColor(CColor color) { glColor3f(color.red, color.green, color.blue);}

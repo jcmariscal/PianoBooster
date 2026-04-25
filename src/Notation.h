@@ -30,12 +30,12 @@
 #define __NOTATION_H__
 
 #include <cassert>
+#include <QVector>
 
+#include "BarMap.h"
 #include "MidiFile.h"
-#include "Queue.h"
 #include "Symbol.h"
 #include "Chord.h"
-#include "Bar.h"
 
 #define MAX_SYMBOLS    20  // The maximum number of symbols that can be stored in one slot
 
@@ -173,33 +173,23 @@ enum {
 class CNotation
 {
 public:
-    CNotation()
+    CNotation() : m_barMap(nullptr)
     {
-        m_midiInputQueue = new CQueue<CMidiEvent>(1000);
-        m_slotQueue = new CQueue<CSlot>(200);
         reset();
         m_displayChannel = 0;
-    }
-    ~CNotation()
-    {
-        delete m_midiInputQueue;
-        delete m_slotQueue;
     }
     void reset();
 
     void setChannel(int channel) {m_displayChannel = channel;}
+    void setBarMap(const BarMap *barMap) { m_barMap = barMap; }
 
     CSlot nextSlot();
-    void midiEventInsert(CMidiEvent event);
-
-    int midiEventSpace() { return m_midiInputQueue->space();}
+    void appendMidiEvent(CMidiEvent event);
 
     static void setCourtesyAccidentals(bool setting){m_cfg_displayCourtesyAccidentals = setting;}
     static bool displayCourtesyAccidentals(){return m_cfg_displayCourtesyAccidentals; }
 
 private:
-    CSlot nextBeatMarker();
-    int nextMergeSlot();
     void findNoteSlots();
     CSlot nextNoteSlot();
     accidentalModifer_t detectSuppressedNatural(int note);
@@ -207,17 +197,16 @@ private:
 
     void calculateScoreNoteLength();
 
-    CQueue<CSlot>* m_slotQueue;             // Queue of symbol slots that have not been read yet
-    CQueue<CMidiEvent>* m_midiInputQueue;   // A Queue of midi events
+    QVector<CSlot> m_slots;
+    QVector<CMidiEvent> m_midiEvents;
     CSlot m_currentSlot;
     qint64 m_currentDeltaTime;        // time difference between this and the previous slot
-    int m_beatPerBarCounter;
-    int m_earlyBarChangeCounter;
-    qint64 m_earlyBarChangeDelta; // Counts the ppqn in one bar
-    CSlot m_mergeSlots[2];
+    qint64 m_absoluteTick;
+    int m_slotReadIndex;
+    int m_midiEventIndex;
     int m_displayChannel;
     CFindChord m_findScrollerChord;
-    CBar m_bar;
+    const BarMap *m_barMap;
     CNoteState m_noteState[MAX_MIDI_NOTES];
     static bool m_cfg_displayCourtesyAccidentals;
     static int cfg_param[NOTATE_MAX_PARAMS];

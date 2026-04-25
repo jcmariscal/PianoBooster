@@ -31,11 +31,9 @@
 
 #include <QtWidgets>
 
-#include "Song.h"
-
 #include "ui_GuiLoopingPopup.h"
 
-class CGLView;
+class ApplicationController;
 
 class GuiLoopingPopup : public QWidget, private Ui::GuiLoopingPopup
 {
@@ -43,7 +41,7 @@ class GuiLoopingPopup : public QWidget, private Ui::GuiLoopingPopup
 
 public:
     GuiLoopingPopup(QWidget *parent = 0);
-    void init(CSong* song);
+    void init(ApplicationController* controller);
 
 private slots:
     void on_loopBarsSpin_valueChanged(double bars);
@@ -51,7 +49,7 @@ private slots:
 
 private:
     void updateInfo();
-    CSong* m_song;
+    ApplicationController* m_controller;
 };
 
 #endif //__GUILOOPINGPOPUP_H__

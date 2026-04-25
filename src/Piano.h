@@ -41,12 +41,6 @@ typedef struct {
         int pitch;
 } noteNameItem_t;
 
-typedef struct {
-        int pitchKey;       // This used to fined the Saved note off;
-        CChord savedNoteOffChord;
-} savedNoteOffChord_t;
-
-
 class CPiano : protected CDraw
 {
 
@@ -64,9 +58,6 @@ public:
     int pianistBadNotesDown();
     void clear();
 
-    void addSavedChord(CMidiEvent midiNote, CChord chord);
-    CChord removeSavedChord(int key);
-
     CChord getGoodChord() { return m_goodChord; }
     CChord getBadChord() { return m_badChord; }
 
@@ -82,7 +73,6 @@ private:
     void noteNameListClear();
 
     noteNameItem_t  m_noteNameList[20];
-    savedNoteOffChord_t m_savedChordLookUp[20];
     unsigned int m_noteNameListLength;
 
     CChord m_goodChord;  // The colored note lines that appear on the score when the pianist plays

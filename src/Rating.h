@@ -47,6 +47,7 @@ public:
     int totalNoteCount() {return m_totalNotesCount;}
     int wrongNoteCount() {return m_wrongNoteCount;}
     int lateNoteCount() {return m_lateNoteCount;}
+    void setPlayAlongMode(bool enabled) { m_playAlongMode = enabled; }
 
     double rating()
     {
@@ -72,6 +73,7 @@ private:
     float m_factor;
     CColor m_currentColor;
     bool m_goodAccuracyFlag;
+    bool m_playAlongMode;
 };
 
 #endif //__RATING_H__

@@ -28,28 +28,31 @@
 
 #include <QtWidgets>
 
+#include "ApplicationController.h"
 #include "GuiSidePanel.h"
 #include "GuiTopBar.h"
+#include "Settings.h"
 #include "TrackList.h"
-#include "Conductor.h"
 
 GuiSidePanel::GuiSidePanel(QWidget *parent, CSettings* settings)
     : QWidget(parent), m_parent(parent)
 {
-    m_song = nullptr;
-    m_score = nullptr;
+    m_controller = nullptr;
     m_trackList = nullptr;
     m_topBar = nullptr;
     m_settings = settings;
     setupUi(this);
 }
 
-void GuiSidePanel::init(CSong* songObj, CTrackList* trackList, GuiTopBar* topBar)
+void GuiSidePanel::init(ApplicationController* controller, GuiTopBar* topBar)
 {
-    m_song = songObj;
-    m_trackList = trackList;
+    m_controller = controller;
     m_topBar = topBar;
-    m_trackList->init(songObj, m_settings);
+    if (m_controller == nullptr)
+        return;
+
+    m_trackList = m_controller->trackList();
+    m_controller->initializeTrackList(m_trackList);
 
     // set skill from config
     playMode_t skill = m_settings->value("SidePanel/skill",PB_PLAY_MODE_followYou).toInt();
@@ -81,7 +84,7 @@ void GuiSidePanel::init(CSong* songObj, CTrackList* trackList, GuiTopBar* topBar
     //FIXME rhythmTappingCombo->addItem(tr("Drums+M"));
 
     on_rhythmTappingCombo_activated(m_settings->value("SidePanel/rhythmTapping",0).toInt());
-    rhythmTappingCombo->setCurrentIndex(m_song->cfg_rhythmTapping);
+    rhythmTappingCombo->setCurrentIndex(m_controller->rhythmTappingMode());
 
     repeatSong->setChecked(m_settings->value("SidePanel/repeatSong",false).toBool());
     connect(repeatSong,SIGNAL(stateChanged(int)),this,SLOT(on_repeatSong_released()));
@@ -160,42 +163,147 @@ void GuiSidePanel::on_bookCombo_activated (int index)
 void GuiSidePanel::on_songCombo_activated(int index)
 {
     Q_UNUSED(index)
-    m_settings->setCurrentSongName(songCombo->currentText());
+    if (m_controller)
+        m_controller->selectSongName(songCombo->currentText());
 }
 
 void GuiSidePanel::on_rightHandRadio_toggled (bool checked)
 {
-    if (checked)
-        m_settings->setActiveHand(PB_PART_right);
+    if (checked && m_controller)
+        m_controller->setActiveHand(PB_PART_right);
 }
 
 void GuiSidePanel::on_bothHandsRadio_toggled (bool checked)
 {
-    if (checked)
-        m_settings->setActiveHand(PB_PART_both);
+    if (checked && m_controller)
+        m_controller->setActiveHand(PB_PART_both);
 }
 
 void GuiSidePanel::on_leftHandRadio_toggled (bool checked)
 {
-    if (checked)
-        m_settings->setActiveHand(PB_PART_left);
+    if (checked && m_controller)
+        m_controller->setActiveHand(PB_PART_left);
 }
 
 void GuiSidePanel::on_repeatSong_released(){
     m_settings->setValue("SidePanel/repeatSong",repeatSong->isChecked());
 }
 
+void GuiSidePanel::on_trackListWidget_currentRowChanged(int currentRow)
+{
+    if (m_trackList == nullptr || m_controller == nullptr)
+        return;
+
+    m_controller->selectTrackRow(currentRow);
+    whichPart_t hand = m_trackList->handPartAt(currentRow);
+    if (hand == PB_PART_right || hand == PB_PART_left)
+        setActiveHand(hand);
+    autoSetMuteYourPart();
+}
+
+void GuiSidePanel::on_boostSlider_valueChanged(int value)
+{
+    if (m_controller)
+        m_controller->setBoostVolume(value);
+}
+
+void GuiSidePanel::on_pianoSlider_valueChanged(int value)
+{
+    if (m_controller)
+        m_controller->setPianoVolume(value);
+}
+
+void GuiSidePanel::on_listenRadio_toggled(bool checked)
+{
+    if (!m_controller || !checked) return;
+    m_settings->setValue("SidePanel/skill", PB_PLAY_MODE_listen);
+    m_controller->setPlayMode(PB_PLAY_MODE_listen);
+    autoSetMuteYourPart();
+}
+
+void GuiSidePanel::on_rhythmTapRadio_toggled(bool checked)
+{
+    if (!m_controller || !checked) return;
+    m_settings->setValue("SidePanel/skill", PB_PLAY_MODE_rhythmTapping);
+    m_controller->setPlayMode(PB_PLAY_MODE_rhythmTapping);
+    autoSetMuteYourPart();
+}
+
+void GuiSidePanel::on_followYouRadio_toggled(bool checked)
+{
+    if (!m_controller || !checked) return;
+    m_settings->setValue("SidePanel/skill", PB_PLAY_MODE_followYou);
+    m_controller->setPlayMode(PB_PLAY_MODE_followYou);
+    autoSetMuteYourPart();
+}
+
+void GuiSidePanel::on_playAlongRadio_toggled(bool checked)
+{
+    if (!m_controller || !checked) return;
+    m_settings->setValue("SidePanel/skill", PB_PLAY_MODE_playAlong);
+    m_controller->setPlayMode(PB_PLAY_MODE_playAlong);
+    autoSetMuteYourPart();
+}
+
+void GuiSidePanel::on_muteYourPartCheck_toggled(bool checked)
+{
+    if (m_controller)
+        m_controller->setMutePianistPart(checked);
+}
+
+void GuiSidePanel::setTrackRightHandPart()
+{
+    if (m_trackList == nullptr || m_controller == nullptr)
+        return;
+
+    int row = trackListWidget->currentRow();
+    int otherRow = m_trackList->getHandTrackIndex(PB_PART_left);
+    if (otherRow == row)
+        otherRow = -1;
+    m_controller->setTrackHands(otherRow, row);
+    trackListWidget->setCurrentRow(row);
+    m_controller->invalidateActiveScoreCache();
+}
+
+void GuiSidePanel::setTrackLeftHandPart()
+{
+    if (m_trackList == nullptr || m_controller == nullptr)
+        return;
+
+    int row = trackListWidget->currentRow();
+    int otherRow = m_trackList->getHandTrackIndex(PB_PART_right);
+    if (otherRow == row)
+        otherRow = -1;
+    m_controller->setTrackHands(row, otherRow);
+    trackListWidget->setCurrentRow(row);
+    m_controller->invalidateActiveScoreCache();
+}
+
+void GuiSidePanel::clearTrackPart()
+{
+    if (m_controller == nullptr)
+        return;
+
+    int row = trackListWidget->currentRow();
+    m_controller->setTrackHands(-1, -1);
+    trackListWidget->setCurrentRow(row);
+    m_controller->invalidateActiveScoreCache();
+}
+
 void GuiSidePanel::autoSetMuteYourPart()
 {
+    if (m_controller == nullptr)
+        return;
+
     bool checked = true;
-    if (m_song->getPlayMode() == PB_PLAY_MODE_rhythmTapping)
+    if (m_controller->playMode() == PB_PLAY_MODE_rhythmTapping)
     {
-        if (m_song->cfg_rhythmTapping == PB_RHYTHM_TAP_drumsOnly)
+        if (m_controller->rhythmTappingMode() == PB_RHYTHM_TAP_drumsOnly)
             checked = false;
     }
 
     muteYourPartCheck->setChecked(checked);
-    m_song->mutePianistPart(checked);
+    m_controller->setMutePianistPart(checked);
 }
 
 void GuiSidePanel::setSongName(const QString &songName)
@@ -301,16 +409,19 @@ void GuiSidePanel::on_rhythmTappingCombo_activated (int index)
 {
     m_settings->setValue("SidePanel/rhythmTapping",index);
 
+    rhythmTapping_t mode = PB_RHYTHM_TAP_drumsOnly;
     switch (index)
     {
         case 1 :
-            m_song->cfg_rhythmTapping = PB_RHYTHM_TAP_mellodyOnly;
+            mode = PB_RHYTHM_TAP_mellodyOnly;
             break;
         case 2 :
-            m_song->cfg_rhythmTapping = PB_RHYTHM_TAP_drumsAndMellody;
+            mode = PB_RHYTHM_TAP_drumsAndMellody;
            break;
         default:
-            m_song->cfg_rhythmTapping = PB_RHYTHM_TAP_drumsOnly;
+            break;
     }
+    if (m_controller)
+        m_controller->setRhythmTappingMode(mode);
     autoSetMuteYourPart();
 }

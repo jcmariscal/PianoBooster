@@ -512,13 +512,14 @@ void CSettings::setCurrentSongName(const QString & name)
     m_currentSongName = name;
     debugSettings(("setCurrentSongName %s -- %s", qPrintable(name), qPrintable(getCurrentSongLongFileName())));
     setValue("CurrentSong", getCurrentSongLongFileName());
+}
 
-    m_song->loadSong(getCurrentSongLongFileName());
+void CSettings::applyLoadedSongSettings(const QString& songTitle)
+{
     loadSongSettings();
-
     m_guiSidePanel->refresh();
     m_guiTopBar->refresh(true);
-    m_mainWindow->setWindowTitle("Piano Booster - " + m_song->getSongTitle());
+    m_mainWindow->setWindowTitle("Piano Booster - " + songTitle);
     updateTutorPage();
 }
 

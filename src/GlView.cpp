@@ -105,11 +105,13 @@ QFont scaledSystemFont(const QWidget *widget, int percent, int weight)
 }
 }
 
-CGLView::CGLView(QtWindow* parent, CSettings* settings)
+CGLView::CGLView(QtWindow* parent, CSettings* settings, CSong *song, CScore *score)
     : QOpenGLWidget(parent)
 {
     m_qtWindow = parent;
     m_settings = settings;
+    m_song = song;
+    m_score = score;
     m_rating = nullptr;
     m_fullRedrawFlag = true;
     m_forcefullRedraw = 0;
@@ -120,8 +122,6 @@ CGLView::CGLView(QtWindow* parent, CSettings* settings)
 
     m_backgroundColor = QColor(0, 0, 0);
 
-    m_song = new CSong();
-    m_score = new CScore(m_settings);
     m_displayUpdateTicks = 0;
     m_cfg_openGlOptimise = 0; // zero is no GlOptimise
     m_eventBits = 0;
@@ -130,8 +130,6 @@ CGLView::CGLView(QtWindow* parent, CSettings* settings)
 
 CGLView::~CGLView()
 {
-    delete m_song;
-    delete m_score;
     m_titleHeight = 0;
 }
 
@@ -191,7 +189,6 @@ void CGLView::paintGL()
     if (Cfg::viewMode() == PB_VIEW_MODE_score)
         drawTimeSignature();
 
-    updateMidiTask();
     m_score->drawScroll(m_forcefullRedraw);
     BENCHMARK(10, "drawScroll");
 
@@ -423,14 +420,9 @@ void CGLView::initializeGL()
 
     Cfg::setStaveEndX(400);        //This value get changed by the resizeGL func
 
-    m_song->setActiveHand(PB_PART_both);
-
     setFocusPolicy(Qt::ClickFocus);
-    m_qtWindow->init();
 
     m_score->init();
-
-    m_song->regenerateChordQueue();
 
     // increased the tick time for MIDI handling
 

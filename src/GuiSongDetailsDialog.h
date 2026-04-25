@@ -31,12 +31,11 @@
 
 #include <QtWidgets>
 
-#include "Song.h"
-#include "Settings.h"
-
 #include "ui_GuiSongDetailsDialog.h"
 
-class CGLView;
+class ApplicationController;
+class CSettings;
+class CTrackList;
 
 class GuiSongDetailsDialog : public QDialog, private Ui::GuiSongDetailsDialog
 {
@@ -44,7 +43,7 @@ class GuiSongDetailsDialog : public QDialog, private Ui::GuiSongDetailsDialog
 
 public:
     GuiSongDetailsDialog(QWidget *parent = 0);
-    void init(CSong* song, CSettings* settings);
+    void init(ApplicationController* controller, CSettings* settings);
 
 private slots:
     void accept();
@@ -55,7 +54,7 @@ private:
     void updateSongInfoText();
 
     CSettings* m_settings;
-    CSong* m_song;
+    ApplicationController* m_controller;
     CTrackList* m_trackList;
 };
 

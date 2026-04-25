@@ -31,10 +31,10 @@
 
 #include <QtWidgets>
 
-#include "Song.h"
-#include "Settings.h"
-
 #include "ui_GuiMidiSetupDialog.h"
+
+class ApplicationController;
+class CSettings;
 
 class GuiMidiSetupDialog : public QDialog, private Ui::GuiMidiSettingsDialog
 {
@@ -43,7 +43,7 @@ class GuiMidiSetupDialog : public QDialog, private Ui::GuiMidiSettingsDialog
 public:
     GuiMidiSetupDialog(QWidget *parent = 0);
 
-    void init(CSong* song, CSettings* settings);
+    void init(ApplicationController* controller, CSettings* settings);
 
 private slots:
     void accept();
@@ -55,12 +55,14 @@ private slots:
 
 private:
     void setComboFromSetting(QComboBox *combo, const QString &key, const QVariant &defaultValue = QVariant());
+    void initFluidControls();
+    void loadFluidSettings();
     void updateMidiInfoText();
     void refreshMidiInputCombo();
     void refreshMidiOutputCombo();
     void updateFluidInfoStatus();
     CSettings* m_settings;
-    CSong* m_song;
+    ApplicationController* m_controller;
     int m_latencyFix;
     bool m_latencyChanged;
 };

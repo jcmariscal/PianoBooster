@@ -30,12 +30,10 @@
 
 #include <QtWidgets>
 
-#include "Song.h"
-#include "Score.h"
-#include "TrackList.h"
-#include "Settings.h"
-
 #include "ui_GuiTopBar.h"
+
+class ApplicationController;
+class CSettings;
 
 class GuiTopBar : public QWidget, private Ui::GuiTopBar
 {
@@ -44,7 +42,7 @@ class GuiTopBar : public QWidget, private Ui::GuiTopBar
 public:
     GuiTopBar(QWidget *parent, CSettings* settings);
 
-    void init(CSong* songObj);
+    void init(ApplicationController* controller);
 
     void refresh(bool reset);
 
@@ -78,7 +76,7 @@ private:
     bool eventFilter(QObject *obj, QEvent *event);
     void reloadKeyCombo(bool major);
 
-    CSong* m_song;
+    ApplicationController* m_controller;
     CSettings* m_settings;
 
     QMap<QWidget*,QMap<QString,QString>> listWidgetsRetranslateUi;

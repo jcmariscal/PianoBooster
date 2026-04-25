@@ -105,6 +105,7 @@ public:
     void openSongFile(const QString & filename);
     QString getCurrentSongName() { return m_currentSongName; }
     void setCurrentSongName(const QString & name);
+    void applyLoadedSongSettings(const QString& songTitle);
 
     QString getCurrentBookName() { return m_currentBookName; }
     void setCurrentBookName(const QString & name, bool clearSongName);
@@ -159,6 +160,8 @@ public:
 
     void pianistActive() { m_pianistActive = true;}
     void setActiveHand(whichPart_t hand);
+    void saveActiveHandSettings() { saveHandSettings(); }
+    void loadActiveHandSettings() { loadHandSettings(); }
 
     void setChannelHands(int left, int right);
 

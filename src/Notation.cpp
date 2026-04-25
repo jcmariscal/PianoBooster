@@ -36,9 +36,6 @@
 #define ppDEBUG_NOTATION(args)
 #endif
 
-#define MERGESLOT_NOTE_INDEX        0
-#define MERGESLOT_BEATMARK_INDEX    1
-
 bool CSlot::addSymbol(CSymbol symbol)
 {
     int i;
@@ -122,64 +119,14 @@ void CSlot::analyse()
 
 bool CNotation::m_cfg_displayCourtesyAccidentals = false;
 
-///////////////////////////////////////////////////////////////////////////
-
-CSlot CNotation::nextBeatMarker()
-{
-    const int cfg_barGap = CMidiFile::ppqnAdjust(30);
-
-    CSlot slot;
-
-    m_beatPerBarCounter++;
-
-    if (m_beatPerBarCounter >= m_bar.getTimeSigTop())
-        m_beatPerBarCounter = -1;
-
-    if (m_beatPerBarCounter == -1)    // Sneak in a bar line
-        slot.setSymbol( m_bar.getBeatLength() - cfg_barGap, CSymbol( PB_SYMBOL_barLine, PB_PART_both, 0 ));
-    else if (m_beatPerBarCounter == 0)
-        slot.setSymbol( cfg_barGap, CSymbol( PB_SYMBOL_barMarker, PB_PART_both, 0 ));
-    else
-        slot.setSymbol( m_bar.getBeatLength(), CSymbol( PB_SYMBOL_beatMarker, PB_PART_both, 0 ));
-    return slot;
-}
-
-int CNotation::nextMergeSlot()
-{
-    int nearestIndex = 0;
-    CSlot nearestSlot = m_mergeSlots[0];
-    for(int i = 1; i < arraySize(m_mergeSlots); i++)
-    {
-        // find the slot with the lowest delta time
-        if (m_mergeSlots[i].getDeltaTime() < nearestSlot.getDeltaTime())
-        {
-            nearestSlot = m_mergeSlots[i];
-            nearestIndex = i;
-        }
-    }
-
-    // Now subtract the delta time from all the others
-    for(int i = 0; i < arraySize(m_mergeSlots); ++i)
-    {
-        if (i == nearestIndex)
-            continue;
-        m_mergeSlots[i].addDeltaTime( -nearestSlot.getDeltaTime() );
-    }
-    return nearestIndex;
-}
-
 accidentalModifer_t CNotation::detectSuppressedNatural(int note)
 {
     if (note <= 0 || note +1 >= MAX_MIDI_NOTES)
         return PB_ACCIDENTAL_MODIFER_noChange;
 
     accidentalModifer_t modifer = PB_ACCIDENTAL_MODIFER_noChange;
-
-    while (m_earlyBarChangeDelta >= m_bar.getBarLength())
-    {
-        m_earlyBarChangeDelta -= m_bar.getBarLength();
-        m_earlyBarChangeCounter++;
-    }
+    const qint64 earlyTick = m_absoluteTick + CMidiFile::ppqnAdjust(8);
+    const int currentBar = m_barMap == nullptr ? 0 : barAtTick(*m_barMap, earlyTick);
 
     CNoteState * pNoteState = &m_noteState[note];
     CNoteState * pBackLink = pNoteState->getBackLink();
@@ -187,7 +134,7 @@ accidentalModifer_t CNotation::detectSuppressedNatural(int note)
     int direction = -CStavePos::getStaveAccidentalDirection(note);
     ppDEBUG_NOTATION(("Note %d %d %d", note, direction, pBackLink));
     // check if this note has occurred in this bar before
-    if (pNoteState->getBarChange() == m_earlyBarChangeCounter)
+    if (pNoteState->getBarChange() == currentBar)
     {
         if (pBackLink)
         {
@@ -205,7 +152,7 @@ accidentalModifer_t CNotation::detectSuppressedNatural(int note)
     {
         // we are display a accidental so force the note above (or below) to display
         m_noteState[note + direction].setBackLink(pNoteState); // point back to this note
-        m_noteState[note + direction].setBarChange(m_earlyBarChangeCounter);
+        m_noteState[note + direction].setBarChange(currentBar);
         ppDEBUG_NOTATION(("setting backlink %d %d", note + direction, direction));
     }
     if (pBackLink)
@@ -214,7 +161,7 @@ accidentalModifer_t CNotation::detectSuppressedNatural(int note)
         pBackLink->setBarChange(-1); // this prevents further suppression on the original note
     }
 
-    pNoteState->setBarChange(m_earlyBarChangeCounter);
+    pNoteState->setBarChange(currentBar);
     return modifer;
 }
 
@@ -234,7 +181,7 @@ void CNotation::calculateScoreNoteLength()
     if (!Cfg::experimentalNoteLength)
         return;
 
-    CSlot* slot = m_slotQueue->indexPtr(0);
+    CSlot* slot = &m_slots[m_slotReadIndex];
     for (int i = 0; i < slot->length(); i++)
     {
         CSymbol* symbol = slot->getSymbolPtr(i);
@@ -267,13 +214,13 @@ void CNotation::findNoteSlots()
     while (true)
     {
         // Check that some body has put in some events for us
-        if (m_midiInputQueue->length() == 0)
+        if (m_midiEventIndex >= m_midiEvents.size())
             break;
 
-        midi = m_midiInputQueue->pop();
+        midi = m_midiEvents[m_midiEventIndex++];
 
         m_currentDeltaTime += midi.deltaTime();
-        m_earlyBarChangeDelta += midi.deltaTime();
+        m_absoluteTick += midi.deltaTime();
         if (midi.type() == MIDI_PB_chordSeparator || midi.type() == MIDI_PB_EOF)
         {
             if (m_currentSlot.length() > 0)
@@ -282,19 +229,17 @@ void CNotation::findNoteSlots()
                 if (CNote::splitHandsNaive() && CNote::splitHandsForChannel(m_displayChannel))
                     m_currentSlot.applySplitHands();
                 m_currentSlot.analyse();
-                m_slotQueue->push(m_currentSlot);
+                m_slots.append(m_currentSlot);
                 m_currentSlot.clear();
             }
             if (midi.type() == MIDI_PB_EOF)
             {
                 slot.setSymbol(0, CSymbol( PB_SYMBOL_theEndMarker, PB_PART_both, 0 ));
-                m_slotQueue->push(slot);
+                m_slots.append(slot);
             }
             break;
         }
 
-        else if (midi.type() == MIDI_PB_timeSignature)
-            m_bar.setTimeSig(midi.data1(), midi.data2());
         else if (midi.type() == MIDI_PB_keySignature)
             CStavePos::setKeySignature(midi.data1(), midi.data2());
         else if (midi.type() == MIDI_NOTE_ON)
@@ -332,13 +277,13 @@ void CNotation::findNoteSlots()
 CSlot CNotation::nextNoteSlot()
 {
     // only if the slot queue is empty should we try to find some more
-    if (m_slotQueue->length() == 0)
+    if (m_slotReadIndex >= m_slots.size())
         findNoteSlots();
 
-    if (m_slotQueue->length() > 0)
+    if (m_slotReadIndex < m_slots.size())
     {
         calculateScoreNoteLength();
-        return m_slotQueue->pop();
+        return m_slots[m_slotReadIndex++];
     }
     else
         return CSlot(); // this is an empty slot which means end of file
@@ -346,60 +291,32 @@ CSlot CNotation::nextNoteSlot()
 
 CSlot CNotation::nextSlot()
 {
-    int mergeIdx;
-    CSlot slot;
-
-    if (m_mergeSlots[MERGESLOT_BEATMARK_INDEX].length() == 0)
-    {
-        // load up the two slots on start up
-        m_mergeSlots[MERGESLOT_NOTE_INDEX] = nextNoteSlot();
-        m_mergeSlots[MERGESLOT_BEATMARK_INDEX] = nextBeatMarker();
-
-        // This inserts the beat marksers into the queue early (so they get drawn underneath)
-        m_mergeSlots[MERGESLOT_BEATMARK_INDEX].addDeltaTime(
-            -CMidiFile::getPulsesPerQuarterNote() * BEAT_MARKER_OFFSET / DEFAULT_PPQN);
-    }
-
-    if (m_mergeSlots[0].getSymbolType(0) == PB_SYMBOL_theEndMarker)
-        return m_mergeSlots[0];
-
-    mergeIdx = nextMergeSlot();
-    slot = m_mergeSlots[mergeIdx];
-    if (mergeIdx == 0)
-        m_mergeSlots[mergeIdx] = nextNoteSlot();
-    else
-        m_mergeSlots[mergeIdx] = nextBeatMarker();
-    return slot;
+    return nextNoteSlot();
 }
 
-void CNotation::midiEventInsert(CMidiEvent event)
+void CNotation::appendMidiEvent(CMidiEvent event)
 {
     if (m_findScrollerChord.findChord(event, m_displayChannel, PB_PART_both ) == true)
     {
         // the Score works differently we just send down a chord separator
         CMidiEvent separator;
         separator.chordSeparator(event);
-        m_midiInputQueue->push(separator);
+        m_midiEvents.append(separator);
     }
 
-    m_midiInputQueue->push(event);
+    m_midiEvents.append(event);
 }
 
 void CNotation::reset()
 {
-    const int cfg_earlBarLead = CMidiFile::ppqnAdjust(8);
-
     m_currentDeltaTime = 0;
-    m_midiInputQueue->clear();
-    m_slotQueue->clear();
-    for (auto &slot : m_mergeSlots)
-        slot.clear();
+    m_midiEvents.clear();
+    m_slots.clear();
+    m_midiEventIndex = 0;
+    m_slotReadIndex = 0;
     m_currentSlot.clear();
-    m_beatPerBarCounter=0;
-    m_earlyBarChangeCounter = 0;
-    m_earlyBarChangeDelta = cfg_earlBarLead; // We want to detect the bar change early
+    m_absoluteTick = 0;
 
-    m_bar.reset();
     m_findScrollerChord.reset();
     for (auto &noteState : m_noteState)
         noteState.clear();

@@ -274,8 +274,6 @@ void CPiano::clear()
     m_goodChord.clear();
     m_badChord.clear();
     noteNameListClear();
-    for (auto &chord : m_savedChordLookUp)
-        chord.pitchKey = 0;
 }
 
 void CPiano::drawPianoInput()
@@ -291,46 +289,4 @@ void CPiano::drawPianoInput()
 
     if (showNoteName)
         drawPianoInputNoteNames();
-}
-
-void CPiano::addSavedChord(CMidiEvent midiNote, CChord chord)
-{
-    int key = midiNote.note();
-    for (auto &savedChord : m_savedChordLookUp) {
-        if (midiNote.type() == MIDI_NOTE_ON)
-        {
-            if (savedChord.pitchKey == 0 )
-            {
-                savedChord.pitchKey = key;
-                savedChord.savedNoteOffChord = chord;
-                return;
-            }
-        }
-        else if (midiNote.type() == MIDI_NOTE_OFF)
-        {
-            if (savedChord.pitchKey == key )
-            {
-                savedChord.pitchKey = 0;
-                return;
-            }
-        }
-    }
-    m_savedChordLookUp[0].savedNoteOffChord = chord;
-}
-
-CChord CPiano::removeSavedChord(int key)
-{
-    int i = 0;
-    for (; i < arraySize(m_savedChordLookUp); ++i)
-    {
-        if (m_savedChordLookUp[i].pitchKey == key )
-        {
-            m_savedChordLookUp[i].pitchKey = 0;
-            return m_savedChordLookUp[i].savedNoteOffChord;
-        }
-    }
-    --i;
-    m_savedChordLookUp[i].savedNoteOffChord.clear();
-    return m_savedChordLookUp[i].savedNoteOffChord;
-
 }

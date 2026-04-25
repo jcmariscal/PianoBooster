@@ -29,9 +29,22 @@
 #ifndef _SCORE_H_
 #define _SCORE_H_
 
-#include "Scroll.h"
 #include "Piano.h"
+#include "PracticeFeedback.h"
+#include "ScoreSlot.h"
+#include "ScoreViewport.h"
 #include "Settings.h"
+#include "SongData.h"
+
+class CSlot;
+
+struct CSynthesiaKeyLight
+{
+    int pitch = -1;
+    CColor color;
+    float intensity = 0.0f;
+    bool active = false;
+};
 
 class CScore : public CDraw
 {
@@ -43,51 +56,28 @@ public:
 
     void init();
 
-    //! add a midi event to be analysed and displayed on the score
-    void midiEventInsert(CMidiEvent event)
+    void setSongData(const SongData& song);
+    void seekToTick(qint64 tick);
+    void setCurrentTick(qint64 tick);
+    void invalidateActiveScoreCache()
     {
-        for (int i=0; i < arraySize(m_scroll); i++)
-        {
-            m_scroll[i]->midiEventInsert(event);
-        }
+        CDraw::forceCompileRedraw();
+    }
+    void invalidateStaticScoreCache()
+    {
+        CDraw::forceCompileRedraw();
+    }
+    void invalidateRendererCaches()
+    {
+        invalidateStaticScoreCache();
+        invalidateActiveScoreCache();
     }
 
-    //! first check if there is space to add a midi event
-    int midiEventSpace()
-    {
-        int minSpace = 1000;
-        for (auto *const scroll : m_scroll) // this maybe slow
-        {
-            int space = scroll->midiEventSpace();
-            if (space < minSpace)
-                minSpace = space;
-        }
-        return minSpace;
-    }
+    void transpose(int semitones);
 
-    void transpose(int semitones)
-    {
-        for (auto *const scroll : m_scroll)
-            scroll->transpose(semitones);
-    }
+    void reset();
 
-    void reset()
-    {
-        for (auto *const scroll : m_scroll)
-            scroll->reset();
-    }
-
-    void drawScrollingSymbols(bool show = true)
-    {
-        for (auto *const scroll : m_scroll)
-            scroll->drawScrollingSymbols(show);
-    }
-
-    void scrollDeltaTime(qint64 ticks)
-    {
-        for (auto *const scroll : m_scroll)
-            scroll->scrollDeltaTime(ticks);
-    }
+    void drawScrollingSymbols(const ScoreViewport& viewport, bool show = true);
 
     void setRatingObject(CRating* rating)
     {
@@ -96,39 +86,22 @@ public:
 
     CPiano* getPianoObject() { return m_piano;}
 
-    void setPlayedNoteColor(int note, CColor color, qint64 wantedDelta, qint64 pianistTimming = NOT_USED)
-    {
-        if (m_activeScroll>=0)
-            m_scroll[m_activeScroll]->setPlayedNoteColor(note, color, wantedDelta, pianistTimming);
-    }
+    void setNoteFeedback(int note, PracticeFeedbackKind kind,
+                         qint64 wantedDelta, qint64 pianistTimming = NOT_USED);
 
     void setActiveChannel(int channel)
     {
-        int newActiveSroll;
-
-        if (channel < 0 || channel >= arraySize(m_scroll))
+        if (channel < 0 || channel >= MAX_MIDI_CHANNELS)
             return;
-        newActiveSroll = channel;
 
-        if (m_activeScroll != newActiveSroll)
-        {
-            if (m_activeScroll>=0)
-                m_scroll[m_activeScroll]->showScroll(false);
-            m_activeScroll = newActiveSroll;
-            m_scroll[m_activeScroll]->showScroll(true);
-        }
-    }
-
-    void refreshScroll()
-    {
-        if (m_activeScroll>=0)
-            m_scroll[m_activeScroll]->refresh();
+        if (m_activeScroll != channel)
+            m_activeScroll = channel;
     }
 
     void setDisplayHand(whichPart_t hand)
     {
         CDraw::setDisplayHand(hand);
-        refreshScroll();
+        invalidateRendererCaches();
     }
 
     void drawScore();
@@ -139,15 +112,48 @@ protected:
     CPiano* m_piano;
 
 private:
-    void drawSynthesia(bool refresh);
+    struct ScoreFeedback
+    {
+        bool active = false;
+        int pitch = -1;
+        int slotId = -1;
+        int noteId = -1;
+        PracticeFeedbackKind kind = PracticeFeedbackPending;
+        qint64 timing = NOT_USED;
+    };
+
+    struct ScoreFeedbackTarget
+    {
+        int slotId = -1;
+        int noteId = -1;
+    };
+
+    ScoreViewport currentViewport() const;
     qint64 currentSynthesiaTicks() const;
-    void collectSynthesiaKeyLights(CSynthesiaKeyLight *lights, int lightCount);
-    void drawSynthesiaKeyboard();
-    void drawSynthesiaNotes();
+    void collectSynthesiaKeyLights(const ScoreViewport& viewport,
+                                   CSynthesiaKeyLight *lights, int lightCount);
+    void drawSynthesia(bool refresh, const ScoreViewport& viewport);
+    void drawSynthesiaKeyboard(const ScoreViewport& viewport);
+    void drawSynthesiaNotes(const ScoreViewport& viewport);
+    void drawSynthesiaNoteBodies(const ScoreViewport& viewport);
+    void drawSynthesiaNoteLabels(const ScoreViewport& viewport);
+    void drawScoreSlot(const ScoreSlot& scoreSlot, const ScoreViewport& viewport);
+    void collectScoreKeyLights(const ScoreViewport& viewport,
+                               CSynthesiaKeyLight *lights, int lightCount) const;
+    void applySlotFeedback(CSlot *slot, const ScoreSlot& scoreSlot) const;
+    void clearFeedback();
+    void updateFeedback(int note, PracticeFeedbackKind kind,
+                        qint64 wantedDelta, qint64 pianistTimming);
+    ScoreFeedbackTarget feedbackTarget(int pitch, qint64 targetTick) const;
+    const ScoreFeedback* feedbackFor(int noteId, int pitch, int slotId) const;
 
     CRating* m_rating;
-    CScroll* m_scroll[MAX_MIDI_CHANNELS];
+    QVector<ScoreSlot> m_scoreSlots[MAX_MIDI_CHANNELS];
+    QVector<NoteEvent> m_noteEvents;
+    ScoreFeedback m_feedback[MAX_MIDI_NOTES];
+    qint64 m_currentTick;
     int m_activeScroll;
+    int m_transpose;
     GLuint m_scoreDisplayListId;
     GLuint m_stavesDisplayListId;
 

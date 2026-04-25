@@ -31,13 +31,13 @@
 
 #include <QtWidgets>
 
-#include "Song.h"
-#include "Score.h"
-#include "TrackList.h"
-#include "Settings.h"
+#include "Chord.h"
 
 #include "ui_GuiSidePanel.h"
 
+class ApplicationController;
+class CSettings;
+class CTrackList;
 class GuiTopBar;
 
 class GuiSidePanel : public QWidget, private Ui::GuiSidePanel
@@ -47,7 +47,7 @@ class GuiSidePanel : public QWidget, private Ui::GuiSidePanel
 public:
     GuiSidePanel(QWidget *parent, CSettings* settings);
 
-    void init(CSong* songObj, CTrackList* trackList, GuiTopBar* topBar);
+    void init(ApplicationController* controller, GuiTopBar* topBar);
 
     void refresh();
 
@@ -96,87 +96,18 @@ private slots:
     void on_bothHandsRadio_toggled (bool checked);
     void on_leftHandRadio_toggled (bool checked);
     void on_repeatSong_released();
-
-    void on_trackListWidget_currentRowChanged(int currentRow) {
-        if (m_trackList){
-            m_trackList->currentRowChanged(currentRow);
-            whichPart_t hand = m_trackList->handPartAt(currentRow);
-            if (hand == PB_PART_right || hand == PB_PART_left)
-                setActiveHand(hand);
-            autoSetMuteYourPart();
-        }
-    }
-
-    void on_boostSlider_valueChanged(int value) {
-        if (m_song) m_song->boostVolume(value);
-    }
-
-    void on_pianoSlider_valueChanged(int value) {
-        if (m_song) m_song->pianoVolume(value);
-    }
-    void on_listenRadio_toggled (bool checked)
-    {
-        if (!m_song || !checked) return;
-        m_settings->setValue("SidePanel/skill",PB_PLAY_MODE_listen);
-        m_song->setPlayMode(PB_PLAY_MODE_listen);
-        autoSetMuteYourPart();
-    }
-
-    void on_rhythmTapRadio_toggled (bool checked)
-    {
-        if (!m_song || !checked) return;
-        m_settings->setValue("SidePanel/skill",PB_PLAY_MODE_rhythmTapping);
-        m_song->setPlayMode(PB_PLAY_MODE_rhythmTapping);
-        autoSetMuteYourPart();
-    }
-
-    void on_followYouRadio_toggled (bool checked)
-    {
-        if (!m_song || !checked) return;
-        m_settings->setValue("SidePanel/skill",PB_PLAY_MODE_followYou);
-        m_song->setPlayMode(PB_PLAY_MODE_followYou);
-        autoSetMuteYourPart();
-    }
-
-    void on_playAlongRadio_toggled (bool checked)
-    {
-        if (!m_song || !checked) return;
-        m_settings->setValue("SidePanel/skill",PB_PLAY_MODE_playAlong);
-        m_song->setPlayMode(PB_PLAY_MODE_playAlong);
-        autoSetMuteYourPart();
-    }
-
+    void on_trackListWidget_currentRowChanged(int currentRow);
+    void on_boostSlider_valueChanged(int value);
+    void on_pianoSlider_valueChanged(int value);
+    void on_listenRadio_toggled (bool checked);
+    void on_rhythmTapRadio_toggled (bool checked);
+    void on_followYouRadio_toggled (bool checked);
+    void on_playAlongRadio_toggled (bool checked);
     void on_rhythmTappingCombo_activated (int index);
-
-    void on_muteYourPartCheck_toggled (bool checked)
-    {
-        if (m_song) m_song->mutePianistPart(checked);
-    }
-
-    void setTrackRightHandPart() {
-        int row = trackListWidget->currentRow();
-        int otherRow = m_trackList->getHandTrackIndex(PB_PART_left);
-        if (otherRow == row) otherRow = -1;
-        m_trackList->setActiveHandsIndex(otherRow, row);
-        trackListWidget->setCurrentRow(row);
-        m_song->refreshScroll();
-    }
-
-    void setTrackLeftHandPart() {
-        int row = trackListWidget->currentRow();
-        int otherRow = m_trackList->getHandTrackIndex(PB_PART_right);
-        if (otherRow == row) otherRow = -1;
-        m_trackList->setActiveHandsIndex(row, otherRow);
-        trackListWidget->setCurrentRow(row);
-        m_song->refreshScroll();
-    }
-
-    void clearTrackPart() {
-        int row = trackListWidget->currentRow();
-        m_trackList->setActiveHandsIndex( -1, -1);
-        trackListWidget->setCurrentRow(row);
-        m_song->refreshScroll();
-    }
+    void on_muteYourPartCheck_toggled (bool checked);
+    void setTrackRightHandPart();
+    void setTrackLeftHandPart();
+    void clearTrackPart();
 
 private:
     void autoSetMuteYourPart();
@@ -184,8 +115,7 @@ private:
     QMap<QWidget*,QMap<QString,QString>> listWidgetsRetranslateUi;
     QMap<QAction*,QMap<QString,QString>> listActionsRetranslateUi;
 
-    CSong* m_song;
-    CScore* m_score;
+    ApplicationController* m_controller;
     CTrackList* m_trackList;
     GuiTopBar* m_topBar;
     CSettings* m_settings;

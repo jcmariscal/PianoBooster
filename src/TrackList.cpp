@@ -337,8 +337,11 @@ void CTrackList::refresh()
         }
     }
 
-    if (CStavePos::getKeySignature() == NOT_USED)
+    m_song->rebuildScoreData();
+    if (CStavePos::getKeySignature() == NOT_USED) {
         CStavePos::setKeySignature(guessKeySignature(CNote::rightHandChan(), CNote::leftHandChan()), 0);
+        m_song->forceScoreRedraw();
+    }
 
     // Find an unused channel that we can use for the keyboard
     m_song->reset();

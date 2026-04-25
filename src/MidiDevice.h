@@ -29,6 +29,8 @@
 #ifndef __MIDI_DEVICE_H__
 #define __MIDI_DEVICE_H__
 
+#include <memory>
+
 #include "Util.h"
 /*!
  * @brief   xxxxx.
@@ -71,9 +73,9 @@ public:
     }
 
 private:
-    CMidiDeviceBase* m_rtMidiDevice;
+    std::unique_ptr<CMidiDeviceBase> m_rtMidiDevice;
 #if WITH_INTERNAL_FLUIDSYNTH
-    CMidiDeviceBase* m_fluidSynthMidiDevice;
+    std::unique_ptr<CMidiDeviceBase> m_fluidSynthMidiDevice;
 #endif
     CMidiDeviceBase* m_selectedMidiInputDevice;
     CMidiDeviceBase* m_selectedMidiOutputDevice;

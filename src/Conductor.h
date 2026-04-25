@@ -37,6 +37,11 @@
 #include "Rating.h"
 #include "Tempo.h"
 #include "Bar.h"
+#include "ChordTimeline.h"
+#include "TransportState.h"
+#include "PlaybackCursor.h"
+#include "PracticeEngine.h"
+#include "PracticeState.h"
 
 class CScore;
 class CPiano;
@@ -72,25 +77,12 @@ typedef enum {
 /*!
  * @brief   xxxxx.
  */
-class CConductor : public CMidiDevice
+class CConductor
 {
 public:
     CConductor();
-    ~CConductor();
 
     void init2(CScore * scoreWin, CSettings* settings);
-
-    //! add a midi event to be analysed and played
-    void midiEventInsert(CMidiEvent event);
-
-    //! first check if there is space to add a midi event
-    int midiEventSpace();
-
-    //! add a chord to be played by the pianist
-    void chordEventInsert(CChord chord) {m_wantedChordQueue->push(chord);}
-
-    //! first check if there is space to add a chord event
-    int chordEventSpace() { return m_wantedChordQueue->space();}
 
     void rewind();
 
@@ -99,13 +91,20 @@ public:
 
     void realTimeEngine(qint64 mSecTicks);
     void playMusic(bool start);
-    bool playingMusic() {return m_playing;}
+    bool playingMusic() const {return m_transport.playing;}
+    const TransportState& transportState() const { return m_transport; }
     void reconnectMidi();
+    QStringList getMidiPortList(CMidiDeviceBase::midiType_t type);
+    bool openMidiPort(CMidiDeviceBase::midiType_t type, const QString &portName);
+    bool validMidiOutput();
+    void flushMidiInput();
+    void playMidiEvent(const CMidiEvent &event);
 
-    float getSpeed() {return m_tempo.getSpeed();}
+    float getSpeed() const {return m_transport.speed;}
     void setSpeed(float speed)
     {
-        m_tempo.setSpeed(speed);
+        setTransportSpeed(m_transport, speed);
+        m_tempo.setSpeed(m_transport.speed);
         m_leadLagAdjust = m_tempo.mSecToTicks( -getLatencyFix() );
     }
     void setLatencyFix(int latencyFix)
@@ -113,11 +112,11 @@ public:
         m_latencyFix = latencyFix;
         m_leadLagAdjust = m_tempo.mSecToTicks( -getLatencyFix());
     }
-    int getLatencyFix() { return m_latencyFix; }
+    int getLatencyFix() const { return m_latencyFix; }
 
     void transpose(int transpose);
 
-    int getTranspose() {return m_transpose;}
+    int getTranspose() const {return m_transpose;}
     int getSkill() {return m_skill;}
     void setSkill(int skill)
     {
@@ -150,20 +149,20 @@ public:
         if (m_pianoVolume > 100 ) m_pianoVolume = 100;
         outputBoostVolume();
     }
-    static playMode_t getPlayMode() {return m_playMode;}
+    playMode_t getPlayMode() const {return m_playMode;}
 
     CChord getWantedChord() {return m_wantedChord;}
     void setActiveHand(whichPart_t hand);
 
     void setActiveChannel(int channel);
-    int getActiveChannel(){return m_activeChannel;}
+    int getActiveChannel() const {return m_activeChannel;}
     void setPianistChannels(int goodChan, int badChan){
         m_pianistGoodChan = goodChan;
         m_pianistBadChan = badChan;
     }
     bool hasPianistKeyboardChannel(int chan)   { return (m_pianistGoodChan == chan || m_pianistBadChan == chan ) ? true : false;}
 
-    bool shouldMutePianistPart() {return m_playMode != PB_PLAY_MODE_listen && m_mutePianistPart == true;}
+    bool shouldMutePianistPart() const {return m_playMode != PB_PLAY_MODE_listen && m_mutePianistPart == true;}
 
     CRating* getRating(){return &m_rating;}
 
@@ -185,9 +184,6 @@ public:
     void setEventBits(eventBits_t bits) { m_realTimeEventBits |= bits; } // don't change the other bits
     // set to true to force the score to be redrawn
     void forceScoreRedraw(){ setEventBits( EVENT_BITS_forceFullRedraw); }
-    int getBarNumber(){ return m_bar.getBarNumber();}
-
-    double getCurrentBarPos(){ return m_bar.getCurrentBarPos();}
 
     void setPlayFromBar(double bar){ m_bar.setPlayFromBar(bar);}
     void setPlayUptoBar(double bar){ m_bar.setPlayUptoBar(bar);}
@@ -201,16 +197,28 @@ public:
         m_track2ChannelLookUp[trackNumber] = channelNumber;
     }
 
-    bool cfg_timingMarkersFlag;
-    stopPointMode_t cfg_stopPointMode;
-    rhythmTapping_t cfg_rhythmTapping;
+    void setTimingMarkers(bool enabled) { m_timingMarkersFlag = enabled; }
+    bool timingMarkers() const { return m_timingMarkersFlag; }
+    void setStopPointMode(stopPointMode_t mode) { m_stopPointMode = mode; }
+    stopPointMode_t stopPointMode() const { return m_stopPointMode; }
+    void setRhythmTappingMode(rhythmTapping_t mode) { m_rhythmTappingMode = mode; }
+    rhythmTapping_t rhythmTappingMode() const { return m_rhythmTappingMode; }
+
+    void setChordTimeline(const ChordTimeline& timeline);
+    void playSeekRestoreEvent(CMidiEvent event);
+    void seekForwardToTick(qint64 tick);
+    void setPlaybackEvents(const QVector<MidiEventRecord>* events);
+    void setPlaybackReadPosition(qint64 tick);
+    qint64 currentSongTick() const { return m_transport.currentTick; }
+    void setTransportLoopTicks(qint64 startTick, qint64 endTick)
+    {
+        setTransportLoop(m_transport, startTick, endTick);
+    }
+    eventBits_t takeEventBits();
 
 protected:
     CScore* m_scoreWin;
     CSettings* m_settings;
-
-    CQueue<CMidiEvent>* m_songEventQueue;
-    CQueue<CChord>* m_wantedChordQueue;
 
     eventBits_t m_realTimeEventBits; //used to signal real time events to the caller of task()
 
@@ -243,7 +251,12 @@ private:
     void updatePianoSounds();
 
     void followPlaying();
-    void missedNotesColor(CColor color);
+    void markMissingNotes(PracticeFeedbackKind kind);
+    void applyPracticeRating(PracticeRatingEvent event);
+    void setChordTimelinePosition(qint64 tick);
+    bool readNextPlaybackEvent(CMidiEvent& event);
+    int checkMidiInput();
+    CMidiEvent readMidiInput();
 
     int calcBoostVolume(int chan, int volume);
     int calcSplitListenVelocity(const CMidiEvent& event);
@@ -252,11 +265,12 @@ private:
     void clearMutedSplitNotes();
 
     void addDeltaTime(qint64 ticks);
+    void advanceCurrentSongTick(qint64 ticks);
     void turnOnKeyboardLights(bool on);
 
     qint64 m_playingDeltaTime;
     qint64 m_chordDeltaTime;
-    bool m_playing;
+    TransportState m_transport;
 
     int m_transpose;     // the number of semitones to transpose the music
     followState_t m_followState;
@@ -269,8 +283,12 @@ private:
     }
 
     CRating m_rating;
-    CQueue<CMidiEvent>* m_savedNoteQueue;
-    CQueue<CMidiEvent>* m_savedNoteOffQueue;
+    CQueue<CMidiEvent> m_savedNoteQueue;
+    CQueue<CMidiEvent> m_savedNoteOffQueue;
+    PracticeState m_practiceState;
+    ChordTimeline m_chordTimeline;
+    int m_chordTimelineIndex;
+    PlaybackCursor m_playbackCursor;
     CMidiEvent m_nextMidiEvent;
     void setFollowSkillAdvanced(bool enable);
 
@@ -306,13 +324,17 @@ private:
     qint64 m_pianistTiming;  //measure whether the pianist is playing early or late
     bool m_followPlayingTimeOut;  // O dear, the student is too slow
 
+    CMidiDevice m_midiDevice;
+    bool m_timingMarkersFlag;
+    stopPointMode_t m_stopPointMode;
+    rhythmTapping_t m_rhythmTappingMode;
     bool m_testWrongNoteSound;
     int m_boostVolume;
     int m_pianoVolume;
     int m_activeChannel; // The current part that is being displayed (used for boost)
     int m_savedMainVolume[MAX_MIDI_CHANNELS];
     int m_mutedSplitNotes[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES];
-    static playMode_t m_playMode;
+    playMode_t m_playMode;
     int m_skill;
     bool m_mutePianistPart;
     int m_latencyFix;     // Try to fix the latency (put the time in msec, 0 disables it)

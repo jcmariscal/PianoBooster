@@ -27,8 +27,11 @@
 #ifndef __QT_WINDOW_H__
 #define __QT_WINDOW_H__
 
+#include <memory>
+
 #include <QtWidgets>
 
+#include "ApplicationController.h"
 #include "Song.h"
 #include "Score.h"
 #include "GuiMidiSetupDialog.h"
@@ -91,24 +94,24 @@ private slots:
     void showPreferencesDialog()
     {
         GuiPreferencesDialog preferencesDialog(this);
-        preferencesDialog.init(m_song, m_settings, m_glWidget);
+        preferencesDialog.init(m_controller, m_settings, m_glWidget);
         preferencesDialog.exec();
 
         refreshTranslate();
-        m_score->refreshScroll();
+        m_controller->invalidateActiveScoreCache();
     }
 
     void showSongDetailsDialog()
     {
         GuiSongDetailsDialog songDetailsDialog(this);
-        songDetailsDialog.init(m_song, m_settings);
+        songDetailsDialog.init(m_controller, m_settings);
         songDetailsDialog.exec();
     }
 
     void showKeyboardSetup()
     {
         GuiKeyboardSetupDialog keyboardSetup(this);
-        keyboardSetup.init(m_song, m_settings);
+        keyboardSetup.init(m_controller, m_settings);
         keyboardSetup.exec();
     }
 
@@ -145,7 +148,7 @@ private slots:
     void on_bothHands()  {  m_sidePanel->setActiveHand(PB_PART_both); }
     void on_leftHand()   {  m_sidePanel->setActiveHand(PB_PART_left); }
     void on_playFromStart()   {
-        if(m_song->playingMusic())
+        if(m_controller->playing())
             m_topBar->on_playButton_clicked(true); // Stop the music first if playing
         else
             m_topBar->on_playFromStartButton_clicked(true);
@@ -153,15 +156,15 @@ private slots:
 
     void on_playPause()   {  m_topBar->on_playButton_clicked(true); }
     void on_faster()   {
-        float speed = m_song->getSpeed() + 0.04f;
-        m_song->setSpeed(speed);
-        speed = m_song->getSpeed();
+        float speed = m_controller->speed() + 0.04f;
+        m_controller->setSpeed(speed);
+        speed = m_controller->speed();
         m_topBar->setSpeed(static_cast<int>(speed * 100.0f + 0.5f));
     }
     void on_slower()   {
-        float speed = m_song->getSpeed() - 0.04f;
-        m_song->setSpeed(speed);
-        speed = m_song->getSpeed();
+        float speed = m_controller->speed() - 0.04f;
+        m_controller->setSpeed(speed);
+        speed = m_controller->speed();
         m_topBar->setSpeed(static_cast<int>(speed * 100.0f + 0.5f));
     }
     void on_nextSong()   {  m_sidePanel->nextSong(+1); }
@@ -246,8 +249,11 @@ private:
     QMenu *m_setupMenu;
     QMenu *m_helpMenu;
 
+    std::unique_ptr<CSong> m_songOwner;
+    std::unique_ptr<CScore> m_scoreOwner;
     CSong* m_song;
     CScore* m_score;
+    ApplicationController* m_controller;
     QAction *m_separatorAct;
 
     QAction *m_recentFileActs[maxRecentFiles()];

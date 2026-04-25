@@ -29,12 +29,122 @@
 #include "Song.h"
 #include "Score.h"
 
+#include <algorithm>
+#include <limits>
+
+namespace {
+int validChannel(int channel)
+{
+    if (channel < 0 || channel >= MAX_MIDI_CHANNELS)
+        return -1;
+    return channel;
+}
+
+int validTrack(int track, int trackCount)
+{
+    if (track < 0 || track >= trackCount)
+        return -1;
+    return track;
+}
+
+bool isChannelEvent(int type)
+{
+    return type == MIDI_NOTE_OFF || type == MIDI_NOTE_ON ||
+            type == MIDI_NOTE_PRESSURE || type == MIDI_CONTROL_CHANGE ||
+            type == MIDI_PROGRAM_CHANGE || type == MIDI_CHANNEL_PRESSURE ||
+            type == MIDI_PITCH_BEND;
+}
+
+int recordChannel(CMidiEvent event)
+{
+    if (!isChannelEvent(event.type()))
+        return -1;
+    return validChannel(event.channel());
+}
+
+int recordTrack(CMidiEvent event, int trackCount)
+{
+    if (event.type() == MIDI_NONE || event.type() == MIDI_PB_EOF)
+        return -1;
+    return validTrack(event.track(), trackCount);
+}
+
+bool validPitch(int pitch)
+{
+    return pitch >= 0 && pitch < MAX_MIDI_NOTES;
+}
+
+void clearActiveNotes(int active[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES])
+{
+    for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++)
+        for (int pitch = 0; pitch < MAX_MIDI_NOTES; pitch++)
+            active[channel][pitch] = -1;
+}
+
+void closeNote(QVector<NoteEvent>& notes, int index, qint64 endTick)
+{
+    if (index < 0 || index >= notes.size())
+        return;
+    if (endTick < notes[index].startTick)
+        endTick = notes[index].startTick;
+    notes[index].endTick = endTick;
+}
+
+void appendTempoChange(QVector<TempoChange>& tempos, qint64 tick, int value)
+{
+    if (value <= 0)
+        return;
+    TempoChange change;
+    change.tick = tick;
+    change.microsecondsPerQuarter = value;
+    if (!tempos.isEmpty() && tempos.last().tick == tick)
+        tempos.last() = change;
+    else
+        tempos.append(change);
+}
+
+void appendTimeSignatureChange(QVector<TimeSignatureChange>& signatures,
+                               qint64 tick, int numerator, int denominator)
+{
+    if (numerator <= 0 || denominator <= 0)
+        return;
+    TimeSignatureChange change;
+    change.tick = tick;
+    change.numerator = numerator;
+    change.denominator = denominator;
+    if (!signatures.isEmpty() && signatures.last().tick == tick)
+        signatures.last() = change;
+    else
+        signatures.append(change);
+}
+
+int eventDelta(qint64 fromTick, qint64 toTick)
+{
+    qint64 delta = toTick - fromTick;
+    if (delta < 0)
+        delta = 0;
+    if (delta > std::numeric_limits<int>::max())
+        return std::numeric_limits<int>::max();
+    return static_cast<int>(delta);
+}
+
+qint64 boundedTick(qint64 tick, qint64 duration)
+{
+    if (tick < 0)
+        return 0;
+    if (tick > duration)
+        return duration;
+    return tick;
+}
+}
+
 void CSong::init2(CScore * scoreWin, CSettings* settings)
 {
 
     CNote::reset();
+    m_scoreWin = scoreWin;
 
-    this->CConductor::init2(scoreWin, settings);
+    m_conductor.init2(scoreWin, settings);
 
     setActiveHand(PB_PART_both);
     setPlayMode(PB_PLAY_MODE_followYou);
@@ -47,6 +157,7 @@ void CSong::loadSong(const QString & filename)
     CNote::reset();
 
     m_songTitle = filename;
+    CStavePos::setKeySignature(NOT_USED, 0);
     int index = m_songTitle.lastIndexOf("/");
     if (index >= 0)
         m_songTitle = m_songTitle.right( m_songTitle.length() - index - 1);
@@ -55,53 +166,312 @@ void CSong::loadSong(const QString & filename)
 #ifdef _WIN32
      fn = fn.replace('/','\\');
 #endif
-    m_midiFile->setLogLevel(3);
-    m_midiFile->openMidiFile(string(fn.toLocal8Bit().data()));
+    m_midiFile.setLogLevel(3);
+    m_midiFile.openMidiFile(string(fn.toLocal8Bit().data()));
+    resetSongData(filename);
     ppLogInfo("Opening song %s",  fn.toLocal8Bit().data());
     transpose(0);
     midiFileInfo();
-    m_midiFile->setLogLevel(99);
+    m_midiFile.setLogLevel(99);
     playMusic(false);
     rewind();
     setPlayFromBar(0.0);
     setLoopingBars(0.0);
-    setEventBits(EVENT_BITS_loadSong);
-    if (!m_midiFile->getSongTitle().isEmpty())
-        m_songTitle = m_midiFile->getSongTitle();
+    m_conductor.setEventBits(EVENT_BITS_loadSong);
+    if (!m_midiFile.getSongTitle().isEmpty())
+        m_songTitle = m_midiFile.getSongTitle();
+    m_songData.metadata.title = m_songTitle;
 
+}
+
+void CSong::resetSongData(const QString &filename)
+{
+    m_songData = SongData();
+    m_songData.metadata.fileName = filename;
+    m_songData.metadata.title = m_songTitle;
+    m_songData.metadata.trackCount = m_midiFile.numberOfTracks();
+    m_songData.ppqn = CMidiFile::getPulsesPerQuarterNote();
+    m_songData.eventIndexesByTrack.resize(m_songData.metadata.trackCount);
+    m_conductor.setPlaybackEvents(&m_songData.events);
+    setSongDataReadPosition(0);
+}
+
+void CSong::appendSongDataEvent(CMidiEvent event, int streamIndex)
+{
+    MidiEventRecord record;
+    record.event = event;
+    record.absoluteTick = event.absoluteTime();
+    record.deltaTick = event.deltaTime();
+    if (record.absoluteTick < 0)
+        record.absoluteTick = 0;
+    if (record.deltaTick < 0)
+        record.deltaTick = 0;
+    record.streamIndex = streamIndex;
+    record.track = recordTrack(event, m_songData.metadata.trackCount);
+    record.channel = recordChannel(event);
+
+    const int eventIndex = m_songData.events.size();
+    m_songData.events.append(record);
+    if (record.channel >= 0)
+        m_songData.eventIndexesByChannel[record.channel].append(eventIndex);
+    if (record.track >= 0)
+        m_songData.eventIndexesByTrack[record.track].append(eventIndex);
+    if (record.absoluteTick > m_songData.durationTicks)
+        m_songData.durationTicks = record.absoluteTick;
+}
+
+int CSong::getBarNumber() const
+{
+    return barAtTick(m_barMap, m_conductor.currentSongTick());
+}
+
+double CSong::getCurrentBarPos() const
+{
+    return barPositionAtTick(m_barMap, m_conductor.currentSongTick());
+}
+
+void CSong::buildSongDataMaps()
+{
+    m_songData.tempos.clear();
+    m_songData.timeSignatures.clear();
+    appendTempoChange(m_songData.tempos, 0, 500000);
+    appendTimeSignatureChange(m_songData.timeSignatures, 0, 4, 4);
+
+    for (int i = 0; i < m_songData.events.size(); i++)
+    {
+        MidiEventRecord record = m_songData.events[i];
+        if (record.event.type() == MIDI_PB_tempo)
+            appendTempoChange(m_songData.tempos, record.absoluteTick, record.event.data1());
+        else if (record.event.type() == MIDI_PB_timeSignature)
+            appendTimeSignatureChange(m_songData.timeSignatures, record.absoluteTick,
+                                      record.event.data1(), record.event.data2());
+    }
+}
+
+void CSong::setSongDataReadPosition(qint64 tick)
+{
+    if (tick < 0)
+        tick = 0;
+    auto it = std::lower_bound(m_songData.events.begin(), m_songData.events.end(), tick,
+                               [](const MidiEventRecord& record, qint64 value) {
+        return record.absoluteTick < value;
+    });
+    m_songDataReadIndex = static_cast<int>(it - m_songData.events.begin());
+    m_songDataReadTick = tick;
+}
+
+CMidiEvent CSong::readSongDataEvent()
+{
+    CMidiEvent event;
+    if (m_songDataReadIndex < 0 || m_songDataReadIndex >= m_songData.events.size())
+    {
+        event.setType(MIDI_PB_EOF);
+        return event;
+    }
+
+    const MidiEventRecord record = m_songData.events[m_songDataReadIndex++];
+    event = record.event;
+    event.setDeltaTime(eventDelta(m_songDataReadTick, record.absoluteTick));
+    m_songDataReadTick = record.absoluteTick;
+    return event;
+}
+
+void CSong::buildSongDataNotes()
+{
+    int active[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES];
+    clearActiveNotes(active);
+    m_songData.notes.clear();
+
+    for (int i = 0; i < m_songData.events.size(); i++)
+    {
+        MidiEventRecord record = m_songData.events[i];
+        const int pitch = record.event.note();
+        if (record.channel < 0 || !validPitch(pitch))
+            continue;
+
+        int& activeIndex = active[record.channel][pitch];
+        if (record.event.type() == MIDI_NOTE_ON)
+        {
+            closeNote(m_songData.notes, activeIndex, record.absoluteTick);
+            NoteEvent note;
+            note.id = m_songData.notes.size();
+            note.startTick = record.absoluteTick;
+            note.endTick = record.absoluteTick + record.event.getDuration();
+            note.pitch = pitch;
+            note.velocity = record.event.velocity();
+            note.channel = record.channel;
+            note.track = record.track;
+            note.hand = CNote::findHand(record.event, record.channel, PB_PART_both);
+            m_songData.notes.append(note);
+            activeIndex = note.id;
+        }
+        else if (record.event.type() == MIDI_NOTE_OFF)
+        {
+            closeNote(m_songData.notes, activeIndex, record.absoluteTick);
+            activeIndex = -1;
+        }
+    }
+
+    for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++)
+        for (int pitch = 0; pitch < MAX_MIDI_NOTES; pitch++)
+            closeNote(m_songData.notes, active[channel][pitch], m_songData.durationTicks);
 }
 
 // read the file ahead to collect info about the song first
 void CSong::midiFileInfo()
 {
-    m_trackList->reset(m_midiFile->numberOfTracks());
-    setTimeSig(0,0);
+    m_trackList.reset(m_midiFile.numberOfTracks());
+    m_conductor.setTimeSig(0, 0);
     CStavePos::setKeySignature( NOT_USED, 0 );
 
     // Read the next events to find the active channels
     CMidiEvent event;
+    int streamIndex = 0;
     while ( true )
     {
-        event = m_midiFile->readMidiEvent();
-        m_trackList->examineMidiEvent(event);
+        event = m_midiFile.readMidiEvent();
+        appendSongDataEvent(event, streamIndex++);
+        m_trackList.examineMidiEvent(event);
 
         if (event.type() == MIDI_PB_timeSignature)
         {
-            setTimeSig(event.data1(),event.data2());
+            m_conductor.setTimeSig(event.data1(), event.data2());
         }
 
         if (event.type() == MIDI_PB_EOF)
             break;
     }
+    buildSongDataMaps();
+    m_barMap = buildBarMap(m_songData.ppqn, m_songData.durationTicks,
+                           m_songData.timeSignatures);
+    rebuildScoreData();
+}
+
+void CSong::rebuildScoreData()
+{
+    buildSongDataNotes();
+    if (m_scoreWin != nullptr)
+        m_scoreWin->setSongData(m_songData);
+    regenerateChordQueue();
+    forceScoreRedraw();
 }
 
 void CSong::rewind()
 {
-    m_midiFile->rewind();
-    this->CConductor::rewind();
-    m_scoreWin->reset();
+    m_midiFile.rewind();
+    m_conductor.rewind();
+    setSongDataReadPosition(0);
+    m_conductor.setPlaybackReadPosition(0);
+    m_scoreWin->seekToTick(0);
     reset();
     forceScoreRedraw();
+}
+
+void CSong::playFromStartBar()
+{
+    rewind();
+    playMusic(true);
+}
+
+void CSong::playMusic(bool start)
+{
+    if (start)
+        directSeekToPlayFromBar();
+    m_conductor.playMusic(start);
+    if (start)
+        restoreMidiStateAtTick(m_conductor.currentSongTick());
+}
+
+void CSong::setPlayFromBar(double bar)
+{
+    setPlayFromTick(tickAtBarPosition(m_barMap, bar));
+}
+
+void CSong::setPlayFromTick(qint64 tick)
+{
+    tick = boundedTick(tick, m_songData.durationTicks);
+    m_playFromBar = barPositionAtTick(m_barMap, tick);
+    updateTransportLoop();
+}
+
+void CSong::setLoopingBars(double bars)
+{
+    if (bars < 0.0)
+        bars = 0.0;
+    m_loopingBars = bars;
+    updateTransportLoop();
+}
+
+void CSong::updateTransportLoop()
+{
+    if (m_loopingBars <= 0.0)
+    {
+        m_conductor.setTransportLoopTicks(0, 0);
+        return;
+    }
+    const qint64 startTick = tickAtBarPosition(m_barMap, m_playFromBar);
+    const qint64 endTick = tickAtBarPosition(m_barMap, getPlayUptoBar());
+    m_conductor.setTransportLoopTicks(startTick, endTick);
+}
+
+void CSong::seekToTick(qint64 tick)
+{
+    tick = boundedTick(tick, m_songData.durationTicks);
+    if (tick == m_conductor.currentSongTick())
+        return;
+    if (tick < m_conductor.currentSongTick())
+        rewind();
+
+    m_reachedMidiEof = false;
+    m_scoreWin->seekToTick(tick);
+    setSongDataReadPosition(tick);
+    m_conductor.setPlaybackReadPosition(tick);
+    m_conductor.seekForwardToTick(tick);
+    restoreMidiStateAtTick(tick);
+    forceScoreRedraw();
+}
+
+void CSong::directSeekToPlayFromBar()
+{
+    const qint64 targetTick = tickAtBarPosition(m_barMap, m_playFromBar);
+    if (targetTick > m_conductor.currentSongTick())
+        seekToTick(targetTick);
+}
+
+void CSong::restoreMidiStateAtTick(qint64 tick)
+{
+    const MidiStateSnapshot state = buildMidiStateSnapshot(m_songData.events, tick);
+    for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++)
+        restoreBankSelectState(state.channels[channel]);
+    for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++)
+        restoreProgramState(state.channels[channel]);
+    for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++)
+        restoreControllerState(state.channels[channel]);
+}
+
+void CSong::restoreBankSelectState(const MidiChannelState& state)
+{
+    if (state.hasController[MidiBankSelectMsb])
+        m_conductor.playSeekRestoreEvent(state.controllers[MidiBankSelectMsb]);
+    if (state.hasController[MidiBankSelectLsb])
+        m_conductor.playSeekRestoreEvent(state.controllers[MidiBankSelectLsb]);
+}
+
+void CSong::restoreProgramState(const MidiChannelState& state)
+{
+    if (state.hasProgram)
+        m_conductor.playSeekRestoreEvent(state.program);
+}
+
+void CSong::restoreControllerState(const MidiChannelState& state)
+{
+    for (int controller = 0; controller < MidiControllerCount; controller++)
+    {
+        if (controller == MidiBankSelectMsb || controller == MidiBankSelectLsb)
+            continue;
+        if (state.hasController[controller])
+            m_conductor.playSeekRestoreEvent(state.controllers[controller]);
+    }
 }
 
 void CSong::setActiveHand(whichPart_t hand)
@@ -111,7 +481,7 @@ void CSong::setActiveHand(whichPart_t hand)
     if (hand > PB_PART_left)
         hand = PB_PART_left;
 
-    this->CConductor::setActiveHand(hand);
+    m_conductor.setActiveHand(hand);
     regenerateChordQueue();
 
     m_scoreWin->setDisplayHand(hand);
@@ -119,7 +489,7 @@ void CSong::setActiveHand(whichPart_t hand)
 
 void CSong::setActiveChannel(int chan)
 {
-    this->CConductor::setActiveChannel(chan);
+    m_conductor.setActiveChannel(chan);
     m_scoreWin->setActiveChannel(chan);
     regenerateChordQueue();
 }
@@ -127,93 +497,31 @@ void CSong::setActiveChannel(int chan)
 void  CSong::setPlayMode(playMode_t mode)
 {
     regenerateChordQueue();
-    this->CConductor::setPlayMode(mode);
+    m_conductor.setPlayMode(mode);
     forceScoreRedraw();
 }
 
 void CSong::regenerateChordQueue()
 {
-    int i;
-    int length;
-    CMidiEvent event;
-
-    m_wantedChordQueue->clear();
-    m_findChord.reset();
-
-    length = m_songEventQueue->length();
-
-    for (i = 0; i < length; i++)
-    {
-        event = m_songEventQueue->index(i);
-        // Find the next chord
-        if (m_findChord.findChord(event, getActiveChannel(), PB_PART_both) == true)
-            chordEventInsert( m_findChord.getChord() ); // give the Conductor the chord event
-
-    }
-    resetWantedChord();
+    m_conductor.setChordTimeline(buildChordTimeline(m_songData, getActiveChannel(), PB_PART_both));
 }
 
-void CSong::refreshScroll()
+void CSong::invalidateActiveScoreCache()
 {
-    m_scoreWin->refreshScroll();
+    m_scoreWin->invalidateActiveScoreCache();
+    forceScoreRedraw();
+}
+
+void CSong::invalidateScoreRendererCaches()
+{
+    m_scoreWin->invalidateRendererCaches();
     forceScoreRedraw();
 }
 
 eventBits_t CSong::task(qint64 ticks)
 {
-    realTimeEngine(ticks);
-
-    while (true)
-    {
-        if (m_reachedMidiEof == true)
-            goto exitTask;
-
-        while (true)
-        {
-            // Check that there is space
-            if (midiEventSpace() <= 10 || chordEventSpace() <= 10)
-                break;
-
-            // and that the Score has space also
-            if (m_scoreWin->midiEventSpace() <= 100)
-                break;
-
-            // Read the next events
-            CMidiEvent event = m_midiFile->readMidiEvent();
-
-            //ppLogTrace("Song event delta %d type 0x%x chan %d Note %d", event.deltaTime(), event.type(), event.channel(), event.note());
-
-            // Find the next chord
-            if (m_findChord.findChord(event, getActiveChannel(), PB_PART_both) == true)
-                chordEventInsert( m_findChord.getChord() ); // give the Conductor the chord event
-
-            // send the events to the other end
-            m_scoreWin->midiEventInsert(event);
-
-            // send the events to the other end
-            midiEventInsert(event);
-
-            if (event.type() == MIDI_PB_EOF)
-            {
-                m_reachedMidiEof = true;
-                break;
-            }
-        }
-
-        // carry on with the data until we reach the bar we want
-        if (seekingBarNumber() && m_reachedMidiEof == false && playingMusic())
-        {
-            realTimeEngine(0);
-            m_scoreWin->drawScrollingSymbols(false); // don't display any thing just  remove from the queue
-        }
-        else
-            break;
-    }
-
-exitTask:
-    eventBits_t eventBits = m_realTimeEventBits;
-    m_realTimeEventBits = 0;
-    return eventBits;
+    m_conductor.realTimeEngine(ticks);
+    return m_conductor.takeEventBits();
 }
 
 static const struct pcNote_s
@@ -246,7 +554,6 @@ static const struct pcNote_s
 bool CSong::pcKeyPress(int key, bool down)
 {
     int i;
-    size_t j;
     CMidiEvent midi;
     const int cfg_pcKeyVolume = 64;
     const int cfg_pcKeyChannel = 1-1;
@@ -261,12 +568,12 @@ bool CSong::pcKeyPress(int key, bool down)
                 midi.noteOnEvent(0, cfg_pcKeyChannel, m_fakeChord.getNote(i).pitch() + getTranspose(), cfg_pcKeyVolume);
             else
                 midi.noteOffEvent(0, cfg_pcKeyChannel, m_fakeChord.getNote(i).pitch() + getTranspose(), cfg_pcKeyVolume);
-            expandPianistInput(midi);
+            m_conductor.expandPianistInput(midi);
         }
         return true;
     }
 
-    for (j = 0; j < arraySize(pcNoteLookup); j++)
+    for (int j = 0; j < arraySize(pcNoteLookup); j++)
     {
         if ( key==pcNoteLookup[j].key)
         {
@@ -275,11 +582,10 @@ bool CSong::pcKeyPress(int key, bool down)
             else
                 midi.noteOffEvent(0, cfg_pcKeyChannel, pcNoteLookup[j].note, cfg_pcKeyVolume);
 
-            expandPianistInput(midi);
+            m_conductor.expandPianistInput(midi);
             return true;
         }
     }
     //printf("pcKeyPress %d %d\n", m_pcNote, key);
     return false;
 }
-

@@ -27,7 +27,6 @@
 /*********************************************************************************/
 
 #include "Rating.h"
-#include "Conductor.h"
 
 void CRating::reset()
 {
@@ -39,6 +38,7 @@ void CRating::reset()
     m_previousLateNoteCount = 0;
     m_factor = 2.0;
     m_goodAccuracyFlag = false;
+    m_playAlongMode = false;
 }
 
 void CRating::calculateAccuracy()
@@ -80,7 +80,7 @@ void CRating::calculateAccuracy()
             if (m_currentAccuracy >= accuracyTable[i].value  || i+1 == arraySize(accuracyTable))
             {
                 float stepAmount = (direction > 0) ? accuracyTable[i].stepUp : accuracyTable[i].stepDown;
-                if (stepAmount < 0 && CConductor::getPlayMode() == PB_PLAY_MODE_playAlong)
+                if (stepAmount < 0 && m_playAlongMode)
                     stepAmount = accuracyTable[i].stepUp + accuracyTable[i].stepDown;
                 m_currentAccuracy += stepAmount *m_factor;
                 break;
@@ -104,4 +104,3 @@ void CRating::calculateAccuracy()
         }
     }
 }
-

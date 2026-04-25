@@ -27,7 +27,10 @@
 #include <QFileInfo>
 #include <QtWidgets>
 
+#include "ApplicationController.h"
+#include "Chord.h"
 #include "GuiMidiSetupDialog.h"
+#include "Settings.h"
 
 #if WITH_INTERNAL_FLUIDSYNTH
 #include "MidiDeviceFluidSynth.h"
@@ -36,7 +39,7 @@
 GuiMidiSetupDialog::GuiMidiSetupDialog(QWidget *parent)
     : QDialog(parent)
 {
-    m_song = nullptr;
+    m_controller = nullptr;
     m_settings = nullptr;
     setupUi(this);
     m_latencyFix = 0;
@@ -50,18 +53,26 @@ GuiMidiSetupDialog::GuiMidiSetupDialog(QWidget *parent)
     setWindowTitle(tr("MIDI Setup"));
 }
 
-void GuiMidiSetupDialog::init(CSong* song, CSettings* settings)
+void GuiMidiSetupDialog::init(ApplicationController* controller, CSettings* settings)
 {
-    m_song = song;
+    m_controller = controller;
     m_settings = settings;
 
     // Check inputs.
     QString portName;
 
-    m_latencyFix = m_song->getLatencyFix();
+    m_latencyFix = m_controller->latencyFix();
 
     refreshMidiInputCombo();
     refreshMidiOutputCombo();
+    initFluidControls();
+    loadFluidSettings();
+    updateMidiInfoText();
+    updateFluidInfoStatus();
+}
+
+void GuiMidiSetupDialog::initFluidControls()
+{
 #if WITH_INTERNAL_FLUIDSYNTH
     masterGainSpin->setValue(FLUID_DEFAULT_GAIN);
 #endif
@@ -77,8 +88,6 @@ void GuiMidiSetupDialog::init(CSong* song, CSettings* settings)
     bufferCountCombo->setValidator(new QIntValidator(2, 64, this));
     bufferCountCombo->setCurrentIndex(1);
 
-    updateMidiInfoText();
-
     audioDriverCombo->clear();
 
 #if defined (Q_OS_LINUX)
@@ -88,18 +97,20 @@ void GuiMidiSetupDialog::init(CSong* song, CSettings* settings)
 #elif defined (Q_OS_UNIX)
     audioDriverCombo->addItems({"pulseaudio"});
 #endif
+}
 
-    if (m_settings->getFluidSoundFontNames().size()>0){
-        masterGainSpin->setValue(m_settings->value("FluidSynth/masterGainSpin","40").toInt());
-        reverbCheck->setChecked(m_settings->value("FluidSynth/reverbCheck","false").toBool());
-        chorusCheck->setChecked(m_settings->value("FluidSynth/chorusCheck","false").toBool());
-        setComboFromSetting(audioDriverCombo, "FluidSynth/audioDriverCombo","pulseaudio");
-        setComboFromSetting(sampleRateCombo, "FluidSynth/sampleRateCombo","22050");
-        setComboFromSetting(bufferSizeCombo, "FluidSynth/bufferSizeCombo","128");
-        setComboFromSetting(bufferCountCombo, "FluidSynth/bufferCountCombo","4");
-     }
+void GuiMidiSetupDialog::loadFluidSettings()
+{
+    if (m_settings->getFluidSoundFontNames().isEmpty())
+        return;
 
-    updateFluidInfoStatus();
+    masterGainSpin->setValue(m_settings->value("FluidSynth/masterGainSpin", "40").toInt());
+    reverbCheck->setChecked(m_settings->value("FluidSynth/reverbCheck", "false").toBool());
+    chorusCheck->setChecked(m_settings->value("FluidSynth/chorusCheck", "false").toBool());
+    setComboFromSetting(audioDriverCombo, "FluidSynth/audioDriverCombo", "pulseaudio");
+    setComboFromSetting(sampleRateCombo, "FluidSynth/sampleRateCombo", "22050");
+    setComboFromSetting(bufferSizeCombo, "FluidSynth/bufferSizeCombo", "128");
+    setComboFromSetting(bufferCountCombo, "FluidSynth/bufferCountCombo", "4");
 }
 
 void GuiMidiSetupDialog::setComboFromSetting(QComboBox *combo, const QString &key, const QVariant &defaultValue) {
@@ -118,7 +129,7 @@ void GuiMidiSetupDialog::refreshMidiInputCombo()
     int i = 0;
     midiInputCombo->clear();
     midiInputCombo->addItem(tr("None (PC Keyboard)"));
-    midiInputCombo->addItems(m_song->getMidiPortList(CMidiDevice::MIDI_INPUT));
+    midiInputCombo->addItems(m_controller->midiPortList(CMidiDevice::MIDI_INPUT));
     i = midiInputCombo->findText(m_settings->value("Midi/Input").toString());
     if (i!=-1)
         midiInputCombo->setCurrentIndex(i);
@@ -131,7 +142,7 @@ void GuiMidiSetupDialog::refreshMidiOutputCombo()
     // Check outputs.
     midiOutputCombo->clear();
     midiOutputCombo->addItem(tr("None"));
-    midiOutputCombo->addItems(m_song->getMidiPortList(CMidiDevice::MIDI_OUTPUT));
+    midiOutputCombo->addItems(m_controller->midiPortList(CMidiDevice::MIDI_OUTPUT));
     i = midiOutputCombo->findText(m_settings->value("Midi/Output").toString());
     if (i!=-1)
         midiOutputCombo->setCurrentIndex(i);
@@ -214,7 +225,7 @@ void GuiMidiSetupDialog::accept()
     m_settings->saveSoundFontSettings();
 
     m_settings->setValue("Midi/Input", midiInputCombo->currentText());
-    m_song->openMidiPort(CMidiDevice::MIDI_INPUT, midiInputCombo->currentText() );
+    m_controller->openMidiPort(CMidiDevice::MIDI_INPUT, midiInputCombo->currentText());
     if (midiInputCombo->currentText().startsWith(tr("None")))
         CChord::setPianoRange(PC_KEY_LOWEST_NOTE, PC_KEY_HIGHEST_NOTE);
     else
@@ -223,16 +234,16 @@ void GuiMidiSetupDialog::accept()
 
     if (midiOutputCombo->currentIndex()==0){
         m_settings->setValue("Midi/Output", "");
-        m_song->openMidiPort(CMidiDevice::MIDI_OUTPUT,"");
+        m_controller->openMidiPort(CMidiDevice::MIDI_OUTPUT, "");
     }else{
         m_settings->setValue("Midi/Output", midiOutputCombo->currentText());
-        m_song->openMidiPort(CMidiDevice::MIDI_OUTPUT, midiOutputCombo->currentText() );
+        m_controller->openMidiPort(CMidiDevice::MIDI_OUTPUT, midiOutputCombo->currentText());
     }
     m_settings->updateWarningMessages();
 
     m_settings->setValue("Midi/Latency", m_latencyFix);
-    m_song->setLatencyFix(m_latencyFix);
-    m_song->regenerateChordQueue();
+    m_controller->setLatencyFix(m_latencyFix);
+    m_controller->regenerateChordTimeline();
     if (m_latencyChanged)
     {
         if( m_latencyFix> 0)
@@ -241,13 +252,13 @@ void GuiMidiSetupDialog::accept()
             m_settings->setValue("Keyboard/RightSoundPrevious", rightSound); // Save the current right sound
             // Mute the Piano if we are using the latency fix;
             m_settings->setValue("Keyboard/RightSound", 0);
-            m_song->setPianoSoundPatches( -1, -2); // -1 means no sound and -2 means ignore this parameter
+            m_controller->setPianoSoundPatches(-1, -2); // -1 means no sound and -2 means ignore this parameter
         }
         else
         {
             int previousRightSound = m_settings->value("Keyboard/RightSoundPrevious", Cfg::defaultRightPatch()).toInt();
             m_settings->setValue("Keyboard/RightSound", previousRightSound);
-            m_song->setPianoSoundPatches(previousRightSound, -2); // -2 means ignore this parameter
+            m_controller->setPianoSoundPatches(previousRightSound, -2); // -2 means ignore this parameter
         }
         m_latencyChanged = false;
     }

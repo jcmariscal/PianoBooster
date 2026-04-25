@@ -26,38 +26,41 @@
 
 #include <QtWidgets>
 
+#include "ApplicationController.h"
 #include "GuiLoopingPopup.h"
-#include "GlView.h"
 
 GuiLoopingPopup::GuiLoopingPopup(QWidget *parent)
     : QWidget(parent)
 {
     setupUi(this);
-    m_song = nullptr;
+    m_controller = nullptr;
     setWindowTitle(tr("Continuous Looping"));
     setWindowFlags(Qt::Popup);
 }
 
-void GuiLoopingPopup::init(CSong* song)
+void GuiLoopingPopup::init(ApplicationController* controller)
 {
-    m_song = song;
-    loopBarsSpin->setValue(m_song->getLoopingBars());
+    m_controller = controller;
+    loopBarsSpin->setValue(m_controller->loopingBars());
     updateInfo();
 }
 
 void GuiLoopingPopup::updateInfo()
 {
-    if (m_song->getLoopingBars() > 0.0)
-        loopingText->setText(tr("Repeat End Bar:") + " " + QString().setNum(m_song->getPlayUptoBar()));
+    if (!m_controller)
+        return;
+
+    if (m_controller->loopingBars() > 0.0)
+        loopingText->setText(tr("Repeat End Bar:") + " " + QString().setNum(m_controller->playUptoBarPosition()));
     else
         loopingText->setText(tr("Repeat Bar is disabled"));
 }
 
 void GuiLoopingPopup::on_loopBarsSpin_valueChanged(double bars)
 {
-    if (!m_song) return;
+    if (!m_controller) return;
 
-    m_song->setLoopingBars( bars);
+    m_controller->setLoopingBars(bars);
     updateInfo();
 }
 
@@ -68,4 +71,3 @@ void GuiLoopingPopup::closeEvent(QCloseEvent *event)
     if (parent)
         parent->setChecked(false);
 }
-

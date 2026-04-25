@@ -28,16 +28,18 @@
 
 #include <QtWidgets>
 
+#include "ApplicationController.h"
 #include "GuiTopBar.h"
-#include "TrackList.h"
 #include "GuiLoopingPopup.h"
+#include "Notation.h"
+#include "Util.h"
 
 GuiTopBar::GuiTopBar(QWidget *parent, CSettings* settings)
     : QWidget(parent), m_settings(settings)
 {
 
     m_atTheEndOfTheSong = false;
-    m_song = nullptr;
+    m_controller = nullptr;
     setupUi(this);
 
     parent->installEventFilter(this);
@@ -57,9 +59,9 @@ GuiTopBar::GuiTopBar(QWidget *parent, CSettings* settings)
     setMaximumSize(QSize(16777215, 30));
 }
 
-void GuiTopBar::init(CSong* songObj)
+void GuiTopBar::init(ApplicationController* controller)
 {
-    m_song = songObj;
+    m_controller = controller;
     reloadKeyCombo(true);
 }
 
@@ -73,7 +75,7 @@ void GuiTopBar::refresh(bool reset)
         startBarSpin->setValue(0);
     }
     int index = 0;
-    if (m_song)
+    if (m_controller)
         index = CStavePos::getKeySignature() + 6;
     if (index >= 0 && index < keyCombo->count())
         keyCombo->setCurrentIndex(index);
@@ -121,7 +123,8 @@ void GuiTopBar::reloadKeyCombo(bool major)
 void GuiTopBar::on_keyCombo_activated(int index)
 {
     CStavePos::setKeySignature(index - 6, 0);
-    m_song->refreshScroll();
+    if (m_controller)
+        m_controller->invalidateScoreRendererCaches();
 }
 
 void GuiTopBar::on_transposeSpin_valueChanged(int value)
@@ -129,8 +132,8 @@ void GuiTopBar::on_transposeSpin_valueChanged(int value)
     int i;         //C  Db  D  Eb  E  F   F# G  Ab  A  Bb  B
     const int nextKey[] = {   0, -5, 2, -3, 4, -1, 6, 1, -4, 3, -2, 5};
     const int nextKeySize = arraySize(nextKey);
-    if (!m_song) return;
-    int diff = value - m_song->getTranspose();
+    if (!m_controller) return;
+    int diff = value - m_controller->transpose();
     int oldValue = CStavePos::getKeySignature();
         if (oldValue == -6)
             oldValue = 6; // if key is Eb change to D#
@@ -152,8 +155,8 @@ void GuiTopBar::on_transposeSpin_valueChanged(int value)
     if (newValue >= 0 && newValue < keyCombo->count())
         keyCombo->setCurrentIndex(newValue);
 
-    m_song->transpose(value);
-    m_song->forceScoreRedraw();
+    m_controller->setTranspose(value);
+    m_controller->forceScoreRedraw();
 }
 
 void GuiTopBar::setPlayButtonState(bool checked, bool atTheEnd)
@@ -209,65 +212,65 @@ void GuiTopBar::updateTranslate(){
 void GuiTopBar::on_playButton_clicked(bool clicked)
 {
     Q_UNUSED(clicked)
-    if (!m_song) return;
+    if (!m_controller) return;
 
     if (m_atTheEndOfTheSong)
-        m_song->rewind();
+        m_controller->rewind();
     m_atTheEndOfTheSong = false;
 
-    bool start = !m_song->playingMusic();
-    m_song->playMusic(start);
+    bool start = !m_controller->playing();
+    m_controller->play(start);
     setPlayButtonState(start);
 }
 
 void GuiTopBar::on_playFromStartButton_clicked(bool clicked)
 {
     Q_UNUSED(clicked)
-    if (!m_song) return;
+    if (!m_controller) return;
 
     m_atTheEndOfTheSong = false;
-    m_song->playFromStartBar();
+    m_controller->playFromStartBar();
     setPlayButtonState(true);
 }
 
 void GuiTopBar::on_speedSpin_valueChanged(int speed)
 {
-    if (!m_song) return;
-    m_song->setSpeed(static_cast<float>(speed) / 100.0f);
+    if (!m_controller) return;
+    m_controller->setSpeed(static_cast<float>(speed) / 100.0f);
 }
 
 void GuiTopBar::on_startBarSpin_valueChanged(double bar)
 {
-    if (!m_song) return;
+    if (!m_controller) return;
 
     stopMuiscPlaying();
 
-    m_song->setPlayFromBar( bar);
+    m_controller->setPlayFromBarPosition(bar);
 }
 
 // Stop the muisc playing
 void GuiTopBar::stopMuiscPlaying()
 {
-    if (!m_song) return;
+    if (!m_controller) return;
 
-    m_song->playMusic(false);
+    m_controller->pause();
     setPlayButtonState(false);
 }
 
 void GuiTopBar::on_saveBarButton_clicked(bool clicked)
 {
     Q_UNUSED(clicked)
-    if (!m_song) return;
-    double barNumber = m_song->getCurrentBarPos();
+    if (!m_controller) return;
+    double barNumber = m_controller->currentBarPosition();
     startBarSpin->setValue(barNumber);
 }
 
 void GuiTopBar::on_loopingBarsPopupButton_clicked(bool clicked)
 {
     Q_UNUSED(clicked)
-    if (!m_song) return;
+    if (!m_controller) return;
 
-    m_song->playMusic(false);
+    m_controller->pause();
     setPlayButtonState(false);
 
     QPoint pos = mapToGlobal(loopingBarsPopupButton->pos()) ;
@@ -275,7 +278,7 @@ void GuiTopBar::on_loopingBarsPopupButton_clicked(bool clicked)
     pos.ry() += loopingBarsPopupButton->height() + 2;
     pos.rx() += -5; // Tweak the position slightly
     GuiLoopingPopup *loopingPopup = new GuiLoopingPopup(loopingBarsPopupButton);
-    loopingPopup->init(m_song);
+    loopingPopup->init(m_controller);
     loopingPopup->move (pos);
     loopingPopup->show();
 }

@@ -31,12 +31,11 @@
 
 #include <QtWidgets>
 
-#include "Song.h"
-#include "Settings.h"
-
 #include "ui_GuiPreferencesDialog.h"
 
+class ApplicationController;
 class CGLView;
+class CSettings;
 
 class GuiPreferencesDialog : public QDialog, private Ui::GuiPreferencesDialog
 {
@@ -45,7 +44,7 @@ class GuiPreferencesDialog : public QDialog, private Ui::GuiPreferencesDialog
 public:
     GuiPreferencesDialog(QWidget *parent = 0);
 
-    void init(CSong* song, CSettings* settings, CGLView* glView);
+    void init(ApplicationController* controller, CSettings* settings, CGLView* glView);
 
 private slots:
     void accept();
@@ -54,7 +53,7 @@ private:
     void initLanguageCombo();
 
     CSettings* m_settings;
-    CSong* m_song;
+    ApplicationController* m_controller;
     CGLView *m_glView;
 };
 

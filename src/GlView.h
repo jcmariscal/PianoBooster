@@ -43,13 +43,11 @@ class CGLView : public QOpenGLWidget//, RtTimer
     Q_OBJECT
 
 public:
-    CGLView(QtWindow *parent, CSettings* settings);
+    CGLView(QtWindow *parent, CSettings* settings, CSong *song, CScore *score);
     ~CGLView();
 
     QSize minimumSizeHint() const;
     QSize sizeHint() const;
-    CSong* getSongObject() {return m_song;}
-    CScore* getScoreObject() {return m_score;}
     int m_cfg_openGlOptimise;
 
     void stopTimerEvent();

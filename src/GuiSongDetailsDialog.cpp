@@ -26,24 +26,25 @@
 
 #include <QtWidgets>
 
+#include "ApplicationController.h"
 #include "GuiSongDetailsDialog.h"
-#include "GlView.h"
+#include "TrackList.h"
 
 GuiSongDetailsDialog::GuiSongDetailsDialog(QWidget *parent)
     : QDialog(parent)
 {
     setupUi(this);
-    m_song = nullptr;
+    m_controller = nullptr;
     m_settings = nullptr;
     m_trackList = nullptr;
     setWindowTitle(tr("Song Details"));
 }
 
-void GuiSongDetailsDialog::init(CSong* song, CSettings* settings)
+void GuiSongDetailsDialog::init(ApplicationController* controller, CSettings* settings)
 {
-    m_song = song;
+    m_controller = controller;
     m_settings = settings;
-    m_trackList = m_song->getTrackList();
+    m_trackList = m_controller->trackList();
     leftHandChannelCombo->addItem(tr("No channel assigned"));
     leftHandChannelCombo->addItems(m_trackList->getAllChannelProgramNames(true));
     rightHandChannelCombo->addItem(tr("No channel assigned"));
@@ -91,6 +92,7 @@ void GuiSongDetailsDialog::on_rightHandChannelCombo_activated (int index)
 
 void GuiSongDetailsDialog::accept()
 {
-    m_trackList->setActiveHandsIndex(leftHandChannelCombo->currentIndex() -1, rightHandChannelCombo->currentIndex() -1);
+    m_controller->setTrackHands(leftHandChannelCombo->currentIndex() - 1,
+                                rightHandChannelCombo->currentIndex() - 1);
     this->QDialog::accept();
 }

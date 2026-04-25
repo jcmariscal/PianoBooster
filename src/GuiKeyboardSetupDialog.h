@@ -31,10 +31,10 @@
 
 #include <QtWidgets>
 
-#include "Song.h"
-#include "Settings.h"
-
 #include "ui_GuiKeyboardSetupDialog.h"
+
+class ApplicationController;
+class CSettings;
 
 class GuiKeyboardSetupDialog : public QDialog, private Ui::GuiKeyboardSetupDialog
 {
@@ -43,26 +43,16 @@ class GuiKeyboardSetupDialog : public QDialog, private Ui::GuiKeyboardSetupDialo
 public:
     GuiKeyboardSetupDialog(QWidget *parent = 0);
 
-    void init(CSong* song, CSettings* settings);
+    void init(ApplicationController* controller, CSettings* settings);
 
 private slots:
     void accept();
     void reject();
 
-    void on_rightTestButton_pressed() {
-        m_song->testWrongNoteSound(false);
-        m_song->pcKeyPress( 'x', true);
-    }
-    void on_rightTestButton_released() {
-        m_song->pcKeyPress( 'x', false);
-    }
-    void on_wrongTestButton_pressed() {
-        m_song->testWrongNoteSound(true);
-        m_song->pcKeyPress( 'x', true);
-    }
-    void on_wrongTestButton_released() {
-        m_song->pcKeyPress( 'x', false);
-    }
+    void on_rightTestButton_pressed();
+    void on_rightTestButton_released();
+    void on_wrongTestButton_pressed();
+    void on_wrongTestButton_released();
 
     void on_resetButton_clicked(bool clicked) {
         Q_UNUSED(clicked)
@@ -79,15 +69,12 @@ private:
     void keyPressEvent ( QKeyEvent * event );
     void keyReleaseEvent ( QKeyEvent * event );
 
-    void updateSounds (){
-        m_song->setPianoSoundPatches(rightSoundCombo->currentIndex() -1,
-                                     wrongSoundCombo->currentIndex() -1, true);
-    }
+    void updateSounds();
 
     void updateInfoText();
 
     CSettings* m_settings;
-    CSong* m_song;
+    ApplicationController* m_controller;
 };
 
 #endif //__GUILEYBOARDSETUPDIALOG_H__
