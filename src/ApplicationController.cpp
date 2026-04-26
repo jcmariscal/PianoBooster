@@ -310,6 +310,18 @@ void ApplicationController::rebuildScoreData()
         m_song->rebuildScoreData();
 }
 
+void ApplicationController::rebuildPlaybackEvents()
+{
+    if (m_song != nullptr)
+        m_song->rebuildPlaybackEvents();
+}
+
+void ApplicationController::updateAnnotatedChordPlaybackVolume()
+{
+    if (m_song != nullptr)
+        m_song->updateAnnotatedChordPlaybackVolume();
+}
+
 void ApplicationController::forceScoreRedraw()
 {
     if (m_song != nullptr)

@@ -160,7 +160,7 @@ public:
         m_pianistGoodChan = goodChan;
         m_pianistBadChan = badChan;
     }
-    bool hasPianistKeyboardChannel(int chan)   { return (m_pianistGoodChan == chan || m_pianistBadChan == chan ) ? true : false;}
+    bool hasPianistKeyboardChannel(int chan) const { return m_pianistGoodChan == chan || m_pianistBadChan == chan; }
 
     bool shouldMutePianistPart() const {return m_playMode != PB_PLAY_MODE_listen && m_mutePianistPart == true;}
 
@@ -205,6 +205,7 @@ public:
     rhythmTapping_t rhythmTappingMode() const { return m_rhythmTappingMode; }
 
     void setChordTimeline(const ChordTimeline& timeline);
+    void setAnnotatedChordPlaybackChannel(int channel) { m_annotatedChordPlaybackChannel = channel; }
     void playSeekRestoreEvent(CMidiEvent event);
     void seekForwardToTick(qint64 tick);
     void setPlaybackEvents(const QVector<MidiEventRecord>* events);
@@ -246,6 +247,7 @@ private:
     void fetchNextChord();
     void playTransposeEvent(CMidiEvent event);
     void playTrackEvent(CMidiEvent event);
+    void playAnnotatedChordEvent(CMidiEvent event);
     void outputSavedNotesOff();
     void findImminentNotesOff();
     void updatePianoSounds();
@@ -337,6 +339,7 @@ private:
     int m_activeChannel; // The current part that is being displayed (used for boost)
     int m_savedMainVolume[MAX_MIDI_CHANNELS];
     int m_mutedSplitNotes[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES];
+    int m_annotatedChordPlaybackChannel;
     playMode_t m_playMode;
     int m_skill;
     bool m_mutePianistPart;

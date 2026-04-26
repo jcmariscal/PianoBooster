@@ -62,6 +62,7 @@ CConductor::CConductor()
     m_currentSongTickRemainder = 0;
     m_silenceTimeOut = 0;
     m_realTimeEventBits = 0;
+    m_annotatedChordPlaybackChannel = -1;
     m_mutePianistPart = false;
     setPianistChannels(1-1,2-1);
     m_timingMarkersFlag = false;
@@ -375,7 +376,7 @@ void CConductor::outputBoostVolume()
 
     for ( chan =0; chan <MAX_MIDI_CHANNELS; chan++ )
     {
-        if (hasPianistKeyboardChannel(chan))
+        if (hasPianistKeyboardChannel(chan) || chan == m_annotatedChordPlaybackChannel)
             continue;
         CMidiEvent midi;
         midi.controlChangeEvent(0, chan, MIDI_MAIN_VOLUME, calcBoostVolume(chan,-1));
@@ -551,6 +552,15 @@ void CConductor::playTransposeEvent(CMidiEvent event)
         if (event.type() == MIDI_PROGRAM_CHANGE || event.type() == MIDI_CONTROL_CHANGE)
             playTrackEvent(event); // Play the midi note or event
     }
+}
+
+void CConductor::playAnnotatedChordEvent(CMidiEvent event)
+{
+    if (m_transpose != 0 && event.channel() != MIDI_DRUM_CHANNEL &&
+            (event.type() == MIDI_NOTE_ON || event.type() == MIDI_NOTE_OFF))
+        event.transpose(m_transpose);
+    if (!seekingBarNumber())
+        playMidiEvent(event);
 }
 
 void CConductor::playSeekRestoreEvent(CMidiEvent event)
@@ -1201,7 +1211,11 @@ void CConductor::realTimeEngine(qint64 mSecTicks)
             int channel = m_nextMidiEvent.channel();
 
             // Is this channel_muted
-            if (!hasPianistKeyboardChannel(channel))
+            if (channel == m_annotatedChordPlaybackChannel)
+            {
+                playAnnotatedChordEvent(m_nextMidiEvent);
+            }
+            else if (!hasPianistKeyboardChannel(channel))
             {
                 if (getfollowState() >= PB_FOLLOW_earlyNotes &&
                         (m_playMode == PB_PLAY_MODE_followYou || m_playMode == PB_PLAY_MODE_rhythmTapping) &&

@@ -26,6 +26,7 @@
 
 #include "GlView.h"
 #include "QtWindow.h"
+#include "ChordAnnotationPlayback.h"
 #include "version.h"
 #include "Draw.h"
 
@@ -40,6 +41,7 @@ constexpr const char ChordConfigSevenths[] = "sevenths";
 constexpr const char ChordConfigLeadSheet[] = "lead-sheet";
 constexpr const char ChordConfigLeadSheetRepeats[] = "lead-sheet-repeats";
 constexpr const char ChordConfigSetting[] = "Song/AnnotateChordConfiguration";
+constexpr const char ChordModeSetting[] = "Song/AnnotateChordMode";
 constexpr int ChordConfigMaxSegmentsLimit = 4;
 constexpr int ClusterNormalMaxSpanDefault = MIDI_OCTAVE;
 constexpr int ClusterWideMaxSpanDefault = MIDI_OCTAVE + 4;
@@ -76,6 +78,13 @@ QString normalizedChordConfigName(const QString& name)
             name == QLatin1String(ChordConfigLeadSheetRepeats))
         return name;
     return QString::fromLatin1(ChordConfigLeadSheet);
+}
+
+int normalizedChordMode(int mode)
+{
+    if (mode == ChordAnnotationNaive)
+        return ChordAnnotationNaive;
+    return ChordAnnotationNaive;
 }
 }
 
@@ -517,6 +526,50 @@ void QtWindow::createActions()
     m_annotateChordsAct->setChecked(m_settings->value("Song/AnnotateScore", false).toBool());
     connect(m_annotateChordsAct, SIGNAL(toggled(bool)), this, SLOT(on_annotateChords(bool)));
 
+    m_playAnnotatedChordsAct = new QAction(tr("Play Annotated C&hords"), this);
+    m_playAnnotatedChordsAct->setToolTip(
+                tr("Play low-volume sustained chord annotations during playback"));
+    m_playAnnotatedChordsAct->setCheckable(true);
+    m_playAnnotatedChordsAct->setChecked(
+                m_settings->value("Song/PlayAnnotatedChords", false).toBool());
+    connect(m_playAnnotatedChordsAct, SIGNAL(toggled(bool)),
+            this, SLOT(on_playAnnotatedChords(bool)));
+
+    m_annotatedChordVolumeSlider = new QSlider(Qt::Horizontal, this);
+    m_annotatedChordVolumeSlider->setMinimum(0);
+    m_annotatedChordVolumeSlider->setMaximum(127);
+    m_annotatedChordVolumeSlider->setValue(qBound(0,
+                m_settings->value("Song/AnnotatedChordVolume",
+                                  AnnotatedChordPlaybackVolume).toInt(), 127));
+    m_annotatedChordVolumeSlider->setFixedWidth(140);
+    m_annotatedChordVolumeSlider->setToolTip(tr("Annotated chord backing volume"));
+    connect(m_annotatedChordVolumeSlider, SIGNAL(valueChanged(int)),
+            this, SLOT(on_annotatedChordVolume(int)));
+    QWidget *annotatedChordVolumeWidget = new QWidget(this);
+    QHBoxLayout *annotatedChordVolumeLayout = new QHBoxLayout(annotatedChordVolumeWidget);
+    annotatedChordVolumeLayout->setContentsMargins(12, 4, 12, 4);
+    annotatedChordVolumeLayout->addWidget(new QLabel(tr("Chord Volume"), annotatedChordVolumeWidget));
+    annotatedChordVolumeLayout->addWidget(m_annotatedChordVolumeSlider);
+    QWidgetAction *annotatedChordVolumeAction = new QWidgetAction(this);
+    annotatedChordVolumeAction->setDefaultWidget(annotatedChordVolumeWidget);
+    m_annotatedChordVolumeAct = annotatedChordVolumeAction;
+
+    m_annotateChordsModeGroup = new QActionGroup(this);
+    m_annotateChordsModeGroup->setExclusive(true);
+    connect(m_annotateChordsModeGroup, SIGNAL(triggered(QAction*)),
+            this, SLOT(on_annotateChordsMode(QAction*)));
+    QAction *naiveChordModeAct = new QAction(tr("&Naive"), this);
+    naiveChordModeAct->setToolTip(tr("Use the current per-bar chord annotation algorithm"));
+    naiveChordModeAct->setCheckable(true);
+    naiveChordModeAct->setData(ChordAnnotationNaive);
+    m_annotateChordsModeGroup->addAction(naiveChordModeAct);
+    const int chordMode = normalizedChordMode(
+                m_settings->value(ChordModeSetting, ChordAnnotationNaive).toInt());
+    naiveChordModeAct->setChecked(chordMode == ChordAnnotationNaive);
+    if (!m_settings->contains(ChordModeSetting) ||
+            m_settings->value(ChordModeSetting).toInt() != chordMode)
+        m_settings->setValue(ChordModeSetting, chordMode);
+
     m_annotateChordsConfigGroup = new QActionGroup(this);
     m_annotateChordsConfigGroup->setExclusive(true);
     connect(m_annotateChordsConfigGroup, SIGNAL(triggered(QAction*)),
@@ -702,6 +755,11 @@ void QtWindow::createMenus()
     m_splitHandsConfigMenu->addAction(m_splitHandsClusterNormalSpanAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsClusterWideSpanAct);
     m_songMenu->addAction(m_annotateChordsAct);
+    m_songMenu->addAction(m_playAnnotatedChordsAct);
+    m_songMenu->addAction(m_annotatedChordVolumeAct);
+    m_annotateChordsModeMenu = m_songMenu->addMenu(tr("Annotate Chord &Modes"));
+    for (QAction *action : m_annotateChordsModeGroup->actions())
+        m_annotateChordsModeMenu->addAction(action);
     m_annotateChordsConfigMenu = m_songMenu->addMenu(tr("Annotate Chords &Configuration"));
     for (QAction *action : m_annotateChordsConfigGroup->actions())
         m_annotateChordsConfigMenu->addAction(action);
@@ -905,6 +963,27 @@ void QtWindow::on_annotateChords(bool checked)
 {
     m_settings->setValue("Song/AnnotateScore", checked);
     m_controller->invalidateScoreRendererCaches();
+    m_glWidget->update();
+}
+
+void QtWindow::on_playAnnotatedChords(bool checked)
+{
+    m_settings->setValue("Song/PlayAnnotatedChords", checked);
+    m_controller->rebuildPlaybackEvents();
+}
+
+void QtWindow::on_annotatedChordVolume(int value)
+{
+    m_settings->setValue("Song/AnnotatedChordVolume", qBound(0, value, 127));
+    m_controller->updateAnnotatedChordPlaybackVolume();
+}
+
+void QtWindow::on_annotateChordsMode(QAction *action)
+{
+    if (action == nullptr)
+        return;
+    m_settings->setValue(ChordModeSetting, action->data().toInt());
+    m_controller->rebuildScoreData();
     m_glWidget->update();
 }
 

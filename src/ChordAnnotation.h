@@ -20,6 +20,11 @@ enum ChordAnnotationLowConfidenceMode
     ChordAnnotationShowAll
 };
 
+enum ChordAnnotationMode
+{
+    ChordAnnotationNaive
+};
+
 struct ChordAnnotation
 {
     int barIndex = -1;
@@ -41,6 +46,7 @@ struct ChordAnnotationOptions
     int keySignature = ChordAnnotationAutoKeySignature;
     int sourceChannel = -1;
     int sourceTrack = -1;
+    ChordAnnotationMode mode = ChordAnnotationNaive;
     ChordAnnotationDetail detail = ChordAnnotationExtensions;
     ChordAnnotationLowConfidenceMode lowConfidenceMode = ChordAnnotationHideLowConfidence;
     float minConfidence = 0.08f;

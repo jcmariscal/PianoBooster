@@ -68,6 +68,8 @@ public:
     bool pcKeyPress(int key, bool down);
     void loadSong(const QString &filename);
     void rebuildScoreData();
+    void rebuildPlaybackEvents();
+    void updateAnnotatedChordPlaybackVolume();
     void regenerateChordQueue();
     void playMusic(bool start);
     bool playingMusic() const { return m_conductor.playingMusic(); }
@@ -100,11 +102,11 @@ public:
     CRating* getRating() { return m_conductor.getRating(); }
     CChord getWantedChord() { return m_conductor.getWantedChord(); }
     void getTimeSig(int *top, int *bottom) { m_conductor.getTimeSig(top, bottom); }
-    void setPianistChannels(int goodChan, int badChan) { m_conductor.setPianistChannels(goodChan, badChan); }
+    void setPianistChannels(int goodChan, int badChan);
     bool hasPianistKeyboardChannel(int channel) { return m_conductor.hasPianistKeyboardChannel(channel); }
     void mapTrack2Channel(int track, int channel) { m_conductor.mapTrack2Channel(track, channel); }
-    void boostVolume(int value) { m_conductor.boostVolume(value); }
-    void pianoVolume(int value) { m_conductor.pianoVolume(value); }
+    void boostVolume(int value);
+    void pianoVolume(int value);
     void mutePianistPart(bool muted) { m_conductor.mutePianistPart(muted); }
     void setTimingMarkers(bool enabled) { m_conductor.setTimingMarkers(enabled); }
     bool timingMarkers() const { return m_conductor.timingMarkers(); }
@@ -149,6 +151,11 @@ private:
     void restoreProgramState(const MidiChannelState& state);
     void restoreControllerState(const MidiChannelState& state);
     void updateTransportLoop();
+    QVector<int> annotatedChordBlockedChannels() const;
+    int annotatedChordPlaybackVolume() const;
+    void prepareAnnotatedChordPlaybackChannel();
+    void playAnnotatedChordAtTick(qint64 tick);
+    void stopAnnotatedChordPlayback();
     ChordAnnotationOptions chordAnnotationOptions() const;
 
     CScore *m_scoreWin;
@@ -156,12 +163,15 @@ private:
     CConductor m_conductor;
     CMidiFile m_midiFile;
     SongData m_songData;
+    QVector<MidiEventRecord> m_playbackEvents;
     BarMap m_barMap;
     int m_songDataReadIndex;
     qint64 m_songDataReadTick;
     double m_playFromBar;
     double m_loopingBars;
     bool m_reachedMidiEof;
+    bool m_annotatedChordPlaybackEnabled = false;
+    int m_annotatedChordPlaybackChannel = -1;
     CChord m_fakeChord;  // the chord played with the tab key
     CTrackList m_trackList;
     QString m_songTitle;

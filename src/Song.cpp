@@ -27,6 +27,7 @@
 /*********************************************************************************/
 
 #include "Song.h"
+#include "ChordAnnotationPlayback.h"
 #include "ChordAnnotationBuilder.h"
 #include "Score.h"
 #include "Settings.h"
@@ -153,6 +154,13 @@ ChordAnnotationLowConfidenceMode validLowConfidenceMode(int value)
     return ChordAnnotationHideLowConfidence;
 }
 
+ChordAnnotationMode validChordAnnotationMode(int value)
+{
+    if (value == ChordAnnotationNaive)
+        return ChordAnnotationNaive;
+    return ChordAnnotationNaive;
+}
+
 float validConfidence(double value)
 {
     if (value < 0.0)
@@ -227,7 +235,11 @@ void CSong::resetSongData(const QString &filename)
     m_songData.metadata.trackCount = m_midiFile.numberOfTracks();
     m_songData.ppqn = CMidiFile::getPulsesPerQuarterNote();
     m_songData.eventIndexesByTrack.resize(m_songData.metadata.trackCount);
-    m_conductor.setPlaybackEvents(&m_songData.events);
+    m_playbackEvents.clear();
+    m_annotatedChordPlaybackEnabled = false;
+    m_annotatedChordPlaybackChannel = -1;
+    m_conductor.setAnnotatedChordPlaybackChannel(-1);
+    m_conductor.setPlaybackEvents(&m_playbackEvents);
     setSongDataReadPosition(0);
 }
 
@@ -387,10 +399,37 @@ void CSong::rebuildScoreData()
     buildSongDataNotes();
     m_songData.chordAnnotations = buildChordAnnotations(m_songData, m_barMap,
                                                         chordAnnotationOptions());
+    rebuildPlaybackEvents();
     if (m_scoreWin != nullptr)
         m_scoreWin->setSongData(m_songData);
     regenerateChordQueue();
     forceScoreRedraw();
+}
+
+void CSong::rebuildPlaybackEvents()
+{
+    const bool enabled = m_settings != nullptr &&
+            m_settings->value("Song/PlayAnnotatedChords", false).toBool();
+    const qint64 tick = m_conductor.currentSongTick();
+    if (m_annotatedChordPlaybackEnabled)
+        stopAnnotatedChordPlayback();
+    m_annotatedChordPlaybackEnabled = enabled;
+    m_annotatedChordPlaybackChannel = enabled ?
+                annotatedChordPlaybackChannel(m_songData, annotatedChordBlockedChannels()) : -1;
+    m_conductor.setAnnotatedChordPlaybackChannel(m_annotatedChordPlaybackChannel);
+    m_playbackEvents = buildPlaybackEventsWithAnnotatedChords(
+                m_songData, enabled, m_annotatedChordPlaybackChannel);
+    m_conductor.setPlaybackEvents(&m_playbackEvents);
+    m_conductor.setPlaybackReadPosition(tick);
+    if (enabled)
+        prepareAnnotatedChordPlaybackChannel();
+    if (enabled && playingMusic())
+        playAnnotatedChordAtTick(tick);
+}
+
+void CSong::updateAnnotatedChordPlaybackVolume()
+{
+    prepareAnnotatedChordPlaybackChannel();
 }
 
 ChordAnnotationOptions CSong::chordAnnotationOptions() const
@@ -407,6 +446,8 @@ ChordAnnotationOptions CSong::chordAnnotationOptions() const
         options.maxSegmentsPerBar = 1;
     options.sourceChannel = m_settings->value("Song/AnnotateSourceChannel", -1).toInt();
     options.sourceTrack = m_settings->value("Song/AnnotateSourceTrack", -1).toInt();
+    options.mode = validChordAnnotationMode(
+                m_settings->value("Song/AnnotateChordMode", ChordAnnotationNaive).toInt());
     options.detail = validChordAnnotationDetail(
                 m_settings->value("Song/AnnotateDetail", ChordAnnotationExtensions).toInt());
     options.lowConfidenceMode = validLowConfidenceMode(
@@ -438,7 +479,30 @@ void CSong::playMusic(bool start)
         directSeekToPlayFromBar();
     m_conductor.playMusic(start);
     if (start)
+    {
         restoreMidiStateAtTick(m_conductor.currentSongTick());
+        prepareAnnotatedChordPlaybackChannel();
+        playAnnotatedChordAtTick(m_conductor.currentSongTick());
+    }
+}
+
+void CSong::setPianistChannels(int goodChan, int badChan)
+{
+    m_conductor.setPianistChannels(goodChan, badChan);
+    if (m_annotatedChordPlaybackEnabled)
+        rebuildPlaybackEvents();
+}
+
+void CSong::boostVolume(int value)
+{
+    m_conductor.boostVolume(value);
+    prepareAnnotatedChordPlaybackChannel();
+}
+
+void CSong::pianoVolume(int value)
+{
+    m_conductor.pianoVolume(value);
+    prepareAnnotatedChordPlaybackChannel();
 }
 
 void CSong::setPlayFromBar(double bar)
@@ -459,6 +523,66 @@ void CSong::setLoopingBars(double bars)
         bars = 0.0;
     m_loopingBars = bars;
     updateTransportLoop();
+}
+
+void CSong::stopAnnotatedChordPlayback()
+{
+    if (m_annotatedChordPlaybackChannel < 0)
+        return;
+    CMidiEvent midi;
+    midi.controlChangeEvent(0, m_annotatedChordPlaybackChannel, MIDI_ALL_NOTES_OFF, 0);
+    m_conductor.playMidiEvent(midi);
+    midi.controlChangeEvent(0, m_annotatedChordPlaybackChannel, MIDI_SUSTAIN, 0);
+    m_conductor.playMidiEvent(midi);
+}
+
+QVector<int> CSong::annotatedChordBlockedChannels() const
+{
+    QVector<int> channels;
+    for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++)
+        if (m_conductor.hasPianistKeyboardChannel(channel))
+            channels.append(channel);
+    return channels;
+}
+
+void CSong::prepareAnnotatedChordPlaybackChannel()
+{
+    if (!m_annotatedChordPlaybackEnabled || m_annotatedChordPlaybackChannel < 0)
+        return;
+    CMidiEvent midi;
+    midi.programChangeEvent(0, m_annotatedChordPlaybackChannel, GM_PIANO_PATCH);
+    m_conductor.playMidiEvent(midi);
+    midi.controlChangeEvent(0, m_annotatedChordPlaybackChannel, MIDI_MAIN_VOLUME,
+                            annotatedChordPlaybackVolume());
+    m_conductor.playMidiEvent(midi);
+}
+
+int CSong::annotatedChordPlaybackVolume() const
+{
+    if (m_settings == nullptr)
+        return AnnotatedChordPlaybackVolume;
+    return qBound(0, m_settings->value("Song/AnnotatedChordVolume",
+                                       AnnotatedChordPlaybackVolume).toInt(), 127);
+}
+
+void CSong::playAnnotatedChordAtTick(qint64 tick)
+{
+    if (!m_annotatedChordPlaybackEnabled || m_annotatedChordPlaybackChannel < 0)
+        return;
+    for (const ChordAnnotation& annotation : m_songData.chordAnnotations)
+    {
+        if (annotation.startTick >= tick || tick >= annotation.endTick)
+            continue;
+        for (int pitch : annotatedChordPitches(annotation))
+        {
+            CMidiEvent midi;
+            midi.noteOnEvent(0, m_annotatedChordPlaybackChannel, pitch,
+                             AnnotatedChordPlaybackVelocity);
+            if (getTranspose() != 0)
+                midi.transpose(getTranspose());
+            m_conductor.playMidiEvent(midi);
+        }
+    }
 }
 
 void CSong::updateTransportLoop()

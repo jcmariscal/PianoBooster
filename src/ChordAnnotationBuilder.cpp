@@ -567,10 +567,9 @@ void mergeAdjacentSameHarmony(QVector<ChordAnnotation>& annotations)
         annotations.removeAt(i);
     }
 }
-}
 
-QVector<ChordAnnotation> buildChordAnnotations(const SongData& song, const BarMap& bars,
-                                               ChordAnnotationOptions options)
+QVector<ChordAnnotation> buildNaiveChordAnnotations(const SongData& song, const BarMap& bars,
+                                                    ChordAnnotationOptions options)
 {
     QVector<ChordAnnotation> annotations;
     if (bars.barStarts.isEmpty())
@@ -602,4 +601,16 @@ QVector<ChordAnnotation> buildChordAnnotations(const SongData& song, const BarMa
     applyCarryPolicy(annotations, options.carryEmptyBars);
     mergeAdjacentSameHarmony(annotations);
     return annotations;
+}
+}
+
+QVector<ChordAnnotation> buildChordAnnotations(const SongData& song, const BarMap& bars,
+                                               ChordAnnotationOptions options)
+{
+    switch (options.mode)
+    {
+    case ChordAnnotationNaive:
+        return buildNaiveChordAnnotations(song, bars, options);
+    }
+    return buildNaiveChordAnnotations(song, bars, options);
 }

@@ -83,6 +83,8 @@ public:
     void invalidateActiveScoreCache();
     void invalidateScoreRendererCaches();
     void rebuildScoreData();
+    void rebuildPlaybackEvents();
+    void updateAnnotatedChordPlaybackVolume();
     void forceScoreRedraw();
     void regenerateChordTimeline();
 
