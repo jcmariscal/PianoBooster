@@ -124,6 +124,12 @@ bool noteVisibleForChannel(const NoteEvent& note, int displayChannel)
         return false;
     if (note.channel == displayChannel)
         return true;
+    if (note.channel >= 0 && note.channel < MAX_MIDI_CHANNELS &&
+            CNote::splitHandsCreateChannels() &&
+            CNote::splitHandsForChannel(displayChannel) &&
+            CNote::rightHandTrack(displayChannel) >= 0 &&
+            CNote::rightHandTrack(note.channel) >= 0)
+        return true;
     if (CNote::splitHandsForChannel(displayChannel) && CNote::splitHandsForChannel(note.channel))
         return true;
     return CNote::hasPianoPart(displayChannel) && CNote::hasPianoPart(note.channel);
@@ -492,6 +498,7 @@ void CScore::transpose(int semitones)
 void CScore::setSongData(const SongData& song)
 {
     m_noteEvents = song.notes;
+    m_chordAnnotations = song.chordAnnotations;
     clearFeedback();
     for (int channel = 0; channel < arraySize(m_scoreSlots); channel++)
     {
@@ -565,6 +572,52 @@ void CScore::drawScrollingSymbols(const ScoreViewport& viewport, bool show)
         drawScoreSlot(scoreSlots[indexes[i]], viewport);
 }
 
+void CScore::drawChordAnnotations(const ScoreViewport& viewport)
+{
+#ifndef NO_USE_FTGL
+    if (m_settings == nullptr || !m_settings->value("Song/AnnotateScore", false).toBool())
+        return;
+    const int keySignature = CStavePos::getKeySignature();
+    if (viewport.viewMode == PB_VIEW_MODE_synthesia)
+    {
+        const float x = synthesiaLeftX() + 42.0f;
+        const float strikeY = synthesiaStrikeY();
+        const float topY = synthesiaTopY();
+        float lastY = strikeY - 1000.0f;
+        for (const ChordAnnotation& annotation : m_chordAnnotations)
+        {
+            const QString label = transposedChordAnnotationLabel(annotation, m_transpose, keySignature);
+            if (label.isEmpty())
+                continue;
+            const float y = strikeY + viewportTickOffsetPixels(viewport, annotation.startTick);
+            if (y < strikeY + 18.0f || y > topY - 18.0f || y < lastY + 24.0f)
+                continue;
+            const QByteArray text = label.toLatin1();
+            renderLabelText(x, y, text.constData(), true);
+            lastY = y;
+        }
+        return;
+    }
+    const float y = CStavePos(PB_PART_right, MAX_STAVE_INDEX).getPosY() + 26.0f;
+    float lastRight = Cfg::scrollStartX() - 1000.0f;
+    for (const ChordAnnotation& annotation : m_chordAnnotations)
+    {
+        const QString label = transposedChordAnnotationLabel(annotation, m_transpose, keySignature);
+        if (label.isEmpty())
+            continue;
+        const float x = Cfg::playZoneX() + viewportTickOffsetPixels(viewport, annotation.startTick);
+        const float width = static_cast<float>(label.length()) * 9.0f;
+        if (x < Cfg::scrollStartX() || x > Cfg::staveEndX() || x - width / 2.0f < lastRight + 6.0f)
+            continue;
+        const QByteArray text = label.toLatin1();
+        renderLabelText(x, y, text.constData(), false);
+        lastRight = x + width / 2.0f;
+    }
+#else
+    Q_UNUSED(viewport);
+#endif
+}
+
 void CScore::drawScroll(bool refresh)
 {
     const ScoreViewport viewport = currentViewport();
@@ -602,6 +655,7 @@ void CScore::drawScroll(bool refresh)
     if (m_settings->value("View/PianoKeyboard").toString()=="on"){
         drawPianoKeyboard();
     }
+    drawChordAnnotations(viewport);
     drawScrollingSymbols(viewport, true);
     m_piano->drawPianoInput();
 }
@@ -622,6 +676,7 @@ void CScore::drawSynthesia(bool refresh, const ScoreViewport& viewport)
     drawSynthesiaGrid(leftX, width, strikeY, topY);
     if (m_settings->synthesiaBeatGuides())
         drawSynthesiaBeatGuides(leftX, rightX, strikeY, topY, viewport.originTick);
+    drawChordAnnotations(viewport);
     drawSynthesiaStrikeLine(leftX, rightX, strikeY);
     drawSynthesiaNotes(viewport);
     drawSynthesiaKeyboard(viewport);

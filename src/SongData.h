@@ -5,6 +5,7 @@
 #include <QString>
 #include <QtGlobal>
 
+#include "ChordAnnotation.h"
 #include "MidiEvent.h"
 
 constexpr int SongDataDefaultPpqn = 96;
@@ -62,6 +63,7 @@ struct SongData
     QVector<NoteEvent> notes;
     QVector<TempoChange> tempos;
     QVector<TimeSignatureChange> timeSignatures;
+    QVector<ChordAnnotation> chordAnnotations;
 };
 
 #endif

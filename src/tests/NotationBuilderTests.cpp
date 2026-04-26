@@ -23,14 +23,16 @@ void expectInt(const char *name, int actual, int expected)
     failures++;
 }
 
-MidiEventRecord noteRecord(qint64 tick, int channel, int pitch, int duration)
+MidiEventRecord noteRecord(qint64 tick, int channel, int pitch, int duration, int track = 0)
 {
     MidiEventRecord record;
     record.absoluteTick = tick;
     record.channel = channel;
+    record.track = track;
     record.event.noteOnEvent(0, channel, pitch, 64);
     record.event.setAbsoluteTime(static_cast<int>(tick));
     record.event.setDuration(duration);
+    record.event.setTrack(track);
     return record;
 }
 
@@ -42,7 +44,7 @@ MidiEventRecord eofRecord(qint64 tick)
     return record;
 }
 
-NoteEvent noteEvent(int id, qint64 tick, int channel, int pitch)
+NoteEvent noteEvent(int id, qint64 tick, int channel, int pitch, int track = 0)
 {
     NoteEvent note;
     note.id = id;
@@ -50,6 +52,7 @@ NoteEvent noteEvent(int id, qint64 tick, int channel, int pitch)
     note.endTick = tick + 48;
     note.pitch = pitch;
     note.channel = channel;
+    note.track = track;
     return note;
 }
 
@@ -104,6 +107,40 @@ void testChannelFiltering()
     expectBool("wrong channel has no note", firstNoteSlot(wrongChannel) == nullptr, true);
     expectBool("right channel has note", firstNoteSlot(rightChannel) != nullptr, true);
 }
+
+void testTrackSplitIncludesSiblingBassChannel()
+{
+    CNote::reset();
+    CNote::setSplitHands(true);
+    CNote::setSplitHandsMode(PB_SPLIT_HANDS_createChannels);
+    CNote::setChannelHands(0, 0);
+    CNote::setSplitHandChannel(0, true);
+    CNote::setRightHandTrack(0, 0);
+    CNote::setRightHandTrack(4, 0);
+
+    SongData song;
+    song.events.append(noteRecord(0, 0, 76, 48, 0));
+    song.events.append(noteRecord(0, 0, 52, 48, 1));
+    song.events.append(noteRecord(0, 4, 43, 48, 1));
+    song.events.append(eofRecord(96));
+    song.notes.append(noteEvent(1, 0, 0, 76, 0));
+    song.notes.append(noteEvent(2, 0, 0, 52, 1));
+    song.notes.append(noteEvent(3, 0, 4, 43, 1));
+    song.durationTicks = 96;
+
+    const QVector<ScoreSlot> scoreSlots = buildNotationSlots(song, 0);
+    const ScoreSlot* slot = firstNoteSlot(scoreSlots);
+    expectBool("track split slot exists", slot != nullptr, true);
+    if (slot == nullptr)
+    {
+        CNote::reset();
+        return;
+    }
+    expectInt("track split note count", slot->symbols.size(), 3);
+    expectInt("track split high track hand", slot->symbols[2].hand, PB_PART_right);
+    expectInt("track split bass sibling channel hand", slot->symbols[0].hand, PB_PART_left);
+    CNote::reset();
+}
 }
 
 int main()
@@ -112,6 +149,7 @@ int main()
     testSingleNote();
     testBeatMarkerBeforeLaterNote();
     testChannelFiltering();
+    testTrackSplitIncludesSiblingBassChannel();
 
     if (failures == 0) {
         std::cout << "NotationBuilder tests passed\n";

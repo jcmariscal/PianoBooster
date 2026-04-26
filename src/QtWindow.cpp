@@ -488,6 +488,12 @@ void QtWindow::createActions()
     m_songDetailsAct->setShortcut(tr("Ctrl+D"));
     connect(m_songDetailsAct, SIGNAL(triggered()), this, SLOT(showSongDetailsDialog()));
 
+    m_annotateChordsAct = new QAction(tr("Annotate &Chords"), this);
+    m_annotateChordsAct->setToolTip(tr("Show lead-sheet chord symbols above the score and in synthesia mode"));
+    m_annotateChordsAct->setCheckable(true);
+    m_annotateChordsAct->setChecked(m_settings->value("Song/AnnotateScore", false).toBool());
+    connect(m_annotateChordsAct, SIGNAL(toggled(bool)), this, SLOT(on_annotateChords(bool)));
+
     m_splitHandsAct = new QAction(tr("Split &Hands"), this);
     m_splitHandsAct->setToolTip(tr("Split a single piano part into left and right hands without changing the MIDI file"));
     m_splitHandsAct->setCheckable(true);
@@ -628,6 +634,7 @@ void QtWindow::createMenus()
     m_splitHandsConfigMenu->addAction(m_splitHandsCostAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsClusterAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsVoicesAct);
+    m_songMenu->addAction(m_annotateChordsAct);
     m_songMenu->addSeparator();
     m_songMenu->addAction(m_songDetailsAct);
 
@@ -731,6 +738,13 @@ void QtWindow::on_splitHandsMode()
     m_controller->rewind();
     m_sidePanel->refresh();
     m_controller->forceScoreRedraw();
+}
+
+void QtWindow::on_annotateChords(bool checked)
+{
+    m_settings->setValue("Song/AnnotateScore", checked);
+    m_controller->invalidateScoreRendererCaches();
+    m_glWidget->update();
 }
 
 void QtWindow::onTheme(QAction *action)

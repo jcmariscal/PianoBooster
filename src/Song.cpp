@@ -27,7 +27,9 @@
 /*********************************************************************************/
 
 #include "Song.h"
+#include "ChordAnnotationBuilder.h"
 #include "Score.h"
+#include "Settings.h"
 
 #include <algorithm>
 #include <limits>
@@ -136,6 +138,29 @@ qint64 boundedTick(qint64 tick, qint64 duration)
         return duration;
     return tick;
 }
+
+ChordAnnotationDetail validChordAnnotationDetail(int value)
+{
+    if (value == ChordAnnotationBasic || value == ChordAnnotationSevenths)
+        return static_cast<ChordAnnotationDetail>(value);
+    return ChordAnnotationExtensions;
+}
+
+ChordAnnotationLowConfidenceMode validLowConfidenceMode(int value)
+{
+    if (value == ChordAnnotationShowConservative || value == ChordAnnotationShowAll)
+        return static_cast<ChordAnnotationLowConfidenceMode>(value);
+    return ChordAnnotationHideLowConfidence;
+}
+
+float validConfidence(double value)
+{
+    if (value < 0.0)
+        return 0.0f;
+    if (value > 1.0)
+        return 1.0f;
+    return static_cast<float>(value);
+}
 }
 
 void CSong::init2(CScore * scoreWin, CSettings* settings)
@@ -143,6 +168,7 @@ void CSong::init2(CScore * scoreWin, CSettings* settings)
 
     CNote::reset();
     m_scoreWin = scoreWin;
+    m_settings = settings;
 
     m_conductor.init2(scoreWin, settings);
 
@@ -350,10 +376,29 @@ void CSong::midiFileInfo()
 void CSong::rebuildScoreData()
 {
     buildSongDataNotes();
+    m_songData.chordAnnotations = buildChordAnnotations(m_songData, m_barMap,
+                                                        chordAnnotationOptions());
     if (m_scoreWin != nullptr)
         m_scoreWin->setSongData(m_songData);
     regenerateChordQueue();
     forceScoreRedraw();
+}
+
+ChordAnnotationOptions CSong::chordAnnotationOptions() const
+{
+    ChordAnnotationOptions options;
+    if (m_settings == nullptr)
+        return options;
+    options.useSmoothing = m_settings->value("Song/AnnotateUseSmoothing", true).toBool();
+    options.carryEmptyBars = m_settings->value("Song/AnnotateCarryEmptyBars", false).toBool();
+    options.sourceChannel = m_settings->value("Song/AnnotateSourceChannel", -1).toInt();
+    options.sourceTrack = m_settings->value("Song/AnnotateSourceTrack", -1).toInt();
+    options.detail = validChordAnnotationDetail(
+                m_settings->value("Song/AnnotateDetail", ChordAnnotationExtensions).toInt());
+    options.lowConfidenceMode = validLowConfidenceMode(
+                m_settings->value("Song/AnnotateLowConfidenceMode", ChordAnnotationHideLowConfidence).toInt());
+    options.minConfidence = validConfidence(m_settings->value("Song/AnnotateMinConfidence", 0.08).toDouble());
+    return options;
 }
 
 void CSong::rewind()

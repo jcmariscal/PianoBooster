@@ -39,6 +39,7 @@ int CNote::m_leftHandChannel = -2;
 int CNote::m_rightHandChannel = -2;
 int CNote::m_rightHandTrack[MAX_MIDI_CHANNELS];
 bool CNote::m_splitHandChannel[MAX_MIDI_CHANNELS];
+int CNote::m_trackSplitHandMask[MAX_MIDI_CHANNELS];
 bool CNote::m_splitHands = false;
 splitHandsMode_t CNote::m_splitHandsMode = PB_SPLIT_HANDS_naive;
 
@@ -780,6 +781,7 @@ void CNote::reset()
         m_rightHandTrack[chan]=-1;
     }
     clearSplitHandChannels();
+    clearTrackSplitHandMasks();
     clearSplitHandAssignments();
 }
 
@@ -795,11 +797,43 @@ void CNote::clearSplitHandChannels()
         m_splitHandChannel[chan] = false;
 }
 
+void CNote::clearTrackSplitHandMasks()
+{
+    for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++)
+        m_trackSplitHandMask[chan] = 0;
+}
+
 void CNote::setSplitHandChannel(int channel, bool enabled)
 {
     if (channel < 0 || channel >= MAX_MIDI_CHANNELS)
         return;
     m_splitHandChannel[channel] = enabled;
+}
+
+void CNote::setTrackSplitHandMask(int channel, int mask)
+{
+    if (channel < 0 || channel >= MAX_MIDI_CHANNELS)
+        return;
+    m_trackSplitHandMask[channel] = mask;
+}
+
+int CNote::trackSplitHandMask(int channel)
+{
+    if (channel < 0 || channel >= MAX_MIDI_CHANNELS)
+        return 0;
+    return m_trackSplitHandMask[channel];
+}
+
+bool CNote::trackSplitChannelHasHand(int channel, whichPart_t hand)
+{
+    const int mask = trackSplitHandMask(channel);
+    if (hand == PB_PART_both)
+        return mask != 0;
+    if (hand == PB_PART_right)
+        return (mask & PB_TRACK_SPLIT_RIGHT_MASK) != 0;
+    if (hand == PB_PART_left)
+        return (mask & PB_TRACK_SPLIT_LEFT_MASK) != 0;
+    return false;
 }
 
 void CNote::clearSplitHandAssignments()
@@ -883,29 +917,39 @@ whichPart_t CNote::findHand(CMidiEvent midi, int whichChannel, whichPart_t which
     const bool splitHandsForBothChannels =
             CNote::splitHandsForChannel(whichChannel) &&
             CNote::splitHandsForChannel(midiChannel);
+    const int displayRightHandTrack = (whichChannel >= 0 && whichChannel < MAX_MIDI_CHANNELS) ?
+                CNote::rightHandTrack(whichChannel) : -1;
+    const int eventRightHandTrack = (midiChannel >= 0 && midiChannel < MAX_MIDI_CHANNELS) ?
+                CNote::rightHandTrack(midiChannel) : -1;
+    const bool sharedTrackSplit =
+            CNote::splitHandsCreateChannels() &&
+            CNote::splitHandsForChannel(whichChannel) &&
+            displayRightHandTrack >= 0 &&
+            eventRightHandTrack >= 0;
     // exit if it is not for this channel
     if (midiChannel != whichChannel)
     {
         // return none if this is not being used with the other hand.
-        if (!splitHandsForBothChannels &&
+        if (!splitHandsForBothChannels && !sharedTrackSplit &&
                 (CNote::hasPianoPart(whichChannel) == false || CNote::hasPianoPart(midiChannel) == false))
             return PB_PART_none;
     }
-    int rightHandTrack = CNote::rightHandTrack(midiChannel);
 
     const bool sameHandChannel = midiChannel == CNote::leftHandChan() &&
             midiChannel == CNote::rightHandChan();
 
-    if (CNote::splitHandsCreateChannels() &&
+    if (sharedTrackSplit) {
+        hand = (midi.track() == displayRightHandTrack) ? PB_PART_right : PB_PART_left;
+    } else if (CNote::splitHandsCreateChannels() &&
             splitHandsForBothChannels &&
-            rightHandTrack >= 0) {
-        hand = (midi.track() == rightHandTrack) ? PB_PART_right : PB_PART_left;
+            eventRightHandTrack >= 0) {
+        hand = (midi.track() == eventRightHandTrack) ? PB_PART_right : PB_PART_left;
     } else if (splitHandsForBothChannels) {
         hand = g_splitHandAssignments.value(
                     splitNoteKey(midi.absoluteTime(), midi.channel(), midi.track(), midi.originalNote()),
                     CNote::splitHandForPitch(midiNote, MIDDLE_C));
-    } else if (midiChannel == whichChannel && rightHandTrack >= 0 ) {
-        hand = (midi.track() == rightHandTrack) ? PB_PART_right : PB_PART_left ;
+    } else if (midiChannel == whichChannel && eventRightHandTrack >= 0 ) {
+        hand = (midi.track() == eventRightHandTrack) ? PB_PART_right : PB_PART_left ;
     } else if (sameHandChannel) {
         hand = CNote::splitHandForPitch(midiNote, MIDDLE_C);
     } else if (midiChannel == CNote::rightHandChan()) {

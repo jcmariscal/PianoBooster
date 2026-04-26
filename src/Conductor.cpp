@@ -206,6 +206,19 @@ bool CConductor::usesSplitListenVolume(int chan) const
             CNote::splitHandsForChannel(chan);
 }
 
+bool CConductor::splitTrackVolumeActive(int chan, bool honorSelectedHand) const
+{
+    if (chan < 0 || chan >= MAX_MIDI_CHANNELS || CNote::splitHandsForChannel(chan))
+        return false;
+    if (!CNote::splitHandsCreateChannels() || !CNote::splitHandsForChannel(m_activeChannel))
+        return false;
+    if (CNote::rightHandTrack(m_activeChannel) < 0 || CNote::rightHandTrack(chan) < 0)
+        return false;
+    if (!honorSelectedHand)
+        return CNote::trackSplitHandMask(chan) != 0;
+    return CNote::trackSplitChannelHasHand(chan, CNote::getActiveHand());
+}
+
 void CConductor::resetAllChannels()
 {
     int channel;
@@ -244,6 +257,8 @@ int CConductor::calcBoostVolume(int channel, int volume)
     {
         if (m_playMode == PB_PLAY_MODE_listen) // only boost one hand in listen mode
         {
+            if (splitTrackVolumeActive(channel, true))
+                activePart = true;
             if (channel == CNote::leftHandChan() && CNote::getActiveHand() != PB_PART_right)
                 activePart = true;
             if (channel == CNote::rightHandChan() && CNote::getActiveHand() != PB_PART_left)
@@ -251,7 +266,7 @@ int CConductor::calcBoostVolume(int channel, int volume)
         }
         else // otherwise always boost both hands
         {
-            if ( CNote::hasPianoPart(channel))
+            if (CNote::hasPianoPart(channel) || splitTrackVolumeActive(channel, false))
                 activePart = true;
         }
     }

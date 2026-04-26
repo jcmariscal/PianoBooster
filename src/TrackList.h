@@ -128,6 +128,32 @@ public:
        return sumOffAllPitches / totalNoteCount;
    }
 
+   int noteCountOnTrack(int trackNo) const {
+       if (trackNo < 0 || trackNo >= m_noteCountByTrack.size())
+           return 0;
+       return m_noteCountByTrack[trackNo];
+   }
+
+   double pitchSumOnTrack(int trackNo) const {
+       if (trackNo < 0 || trackNo >= m_noteFrequencyByTrack.size())
+           return 0.0;
+       double sum = 0.0;
+       int *noteFrequency = m_noteFrequencyByTrack[trackNo].data();
+       for (int note = 0; note < MAX_MIDI_NOTES; note++)
+           sum += noteFrequency[note] * note;
+       return sum;
+   }
+
+   int handMaskForRightTrack(int rightTrack) const {
+       int mask = 0;
+       for (int track = 0; track < m_noteCountByTrack.size(); track++) {
+           if (m_noteCountByTrack[track] <= 0)
+               continue;
+           mask |= (track == rightTrack) ? PB_TRACK_SPLIT_RIGHT_MASK : PB_TRACK_SPLIT_LEFT_MASK;
+       }
+       return mask;
+   }
+
 private:
     int m_noteCount = 0;
     int m_firstPatch = -1;
@@ -206,6 +232,9 @@ public:
 
 private:
     QList<int> findSplittableChannels();
+    QList<int> trackSplitChannels(const QList<int>& activeNonDrumChannels,
+                                  const QList<int>& pianoChannels) const;
+    int rightHandTrackForChannels(const QList<int>& channels) const;
     QString getChannelProgramName(int chan);
 
     CSong* m_song;
@@ -216,6 +245,7 @@ private:
     int m_noteFrequency[MAX_MIDI_CHANNELS][MAX_MIDI_NOTES];
     int m_splitHandsChannel;
     int m_splitHandsChannelCount;
+    int m_trackCount;
 
 };
 

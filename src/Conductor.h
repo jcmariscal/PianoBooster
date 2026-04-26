@@ -262,6 +262,7 @@ private:
     int calcSplitListenVelocity(const CMidiEvent& event);
     bool applySplitListenVolume(CMidiEvent& event);
     bool usesSplitListenVolume(int chan) const;
+    bool splitTrackVolumeActive(int chan, bool honorSelectedHand) const;
     void clearMutedSplitNotes();
 
     void addDeltaTime(qint64 ticks);

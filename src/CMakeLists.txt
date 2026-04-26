@@ -128,7 +128,7 @@ endif(WITH_INTERNAL_FLUIDSYNTH)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_BINARY_DIR} ${OPENGL_INCLUDE_DIR} ${FTGL_INCLUDE_DIR})
 
 SET(PB_BASE_SRCS MidiFile.cpp MidiTrack.cpp Song.cpp Conductor.cpp Util.cpp ApplicationController.cpp NotationBuilder.cpp ScoreIndex.cpp
-    NoteIndex.cpp ChordTimeline.cpp PracticeEngine.cpp PracticeState.cpp
+    NoteIndex.cpp ChordAnnotation.cpp ChordAnnotationBuilder.cpp ChordTimeline.cpp PracticeEngine.cpp PracticeState.cpp
     Chord.cpp Tempo.cpp MidiDevice.cpp MidiDeviceRt.cpp PlaybackCursor.cpp MidiState.cpp ${PB_BASE_SRCS})
 SET(PB_BASE_HDR MidiFile.h MidiTrack.h Song.h Conductor.h Rating.h Util.h
     Chord.h Tempo.h MidiDevice.h)
@@ -312,6 +312,11 @@ if(BUILD_TESTING)
         Bar.cpp Cfg.cpp Util.cpp StavePosition.cpp tests/DrawStaticsTestStub.cpp)
     target_link_libraries(pianobooster_notation_builder_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
     add_test(NAME pianobooster_notation_builder_tests COMMAND pianobooster_notation_builder_tests)
+
+    add_executable(pianobooster_chord_annotation_builder_tests
+        tests/ChordAnnotationBuilderTests.cpp ChordAnnotation.cpp ChordAnnotationBuilder.cpp BarMap.cpp)
+    target_link_libraries(pianobooster_chord_annotation_builder_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
+    add_test(NAME pianobooster_chord_annotation_builder_tests COMMAND pianobooster_chord_annotation_builder_tests)
 
     add_executable(pianobooster_score_index_tests tests/ScoreIndexTests.cpp ScoreIndex.cpp)
     target_link_libraries(pianobooster_score_index_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)

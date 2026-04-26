@@ -56,6 +56,9 @@ typedef enum
     PB_SPLIT_HANDS_createChannels
 } splitHandsMode_t;
 
+constexpr int PB_TRACK_SPLIT_LEFT_MASK = 1;
+constexpr int PB_TRACK_SPLIT_RIGHT_MASK = 2;
+
 struct CSplitHandNote
 {
     int pitch;
@@ -104,6 +107,10 @@ public:
     static int rightHandTrack(int channel) { return m_rightHandTrack[channel]; }
     static void clearSplitHandChannels();
     static void setSplitHandChannel(int channel, bool enabled);
+    static void clearTrackSplitHandMasks();
+    static void setTrackSplitHandMask(int channel, int mask);
+    static int trackSplitHandMask(int channel);
+    static bool trackSplitChannelHasHand(int channel, whichPart_t hand);
     static bool isSplitHandChannel(int channel)
     {
         return channel >= 0 && channel < MAX_MIDI_CHANNELS && m_splitHandChannel[channel];
@@ -155,6 +162,7 @@ private:
     static splitHandsMode_t m_splitHandsMode;
     static whichPart_t m_activeHand;
     static bool m_splitHandChannel[MAX_MIDI_CHANNELS];
+    static int m_trackSplitHandMask[MAX_MIDI_CHANNELS];
     // -1 means there is a single track and no separate left and right hand parts
     static int m_rightHandTrack[MAX_MIDI_CHANNELS];
 };

@@ -52,12 +52,35 @@ void testCreateChannelsHonorsSelectedHand()
               CNote::findHand(noteOn(0, 1, 48), 0, PB_PART_left),
               PB_PART_none);
 }
+
+void testCreateChannelsReadsSiblingChannelTracksWithoutAudioSplit()
+{
+    useCreateChannelsMode(0, 1);
+    CNote::setRightHandTrack(4, 1);
+    CNote::setTrackSplitHandMask(4, PB_TRACK_SPLIT_LEFT_MASK);
+
+    expectInt("sibling split audio flag remains off",
+              CNote::splitHandsForChannel(4), false);
+    expectInt("sibling channel is not right volume hand",
+              CNote::trackSplitChannelHasHand(4, PB_PART_right), false);
+    expectInt("sibling channel is left volume hand",
+              CNote::trackSplitChannelHasHand(4, PB_PART_left), true);
+    expectInt("sibling channel is both volume hand",
+              CNote::trackSplitChannelHasHand(4, PB_PART_both), true);
+    expectInt("sibling channel right track",
+              CNote::findHand(noteOn(4, 1, 48), 0, PB_PART_both),
+              PB_PART_right);
+    expectInt("sibling channel left track",
+              CNote::findHand(noteOn(4, 0, 80), 0, PB_PART_both),
+              PB_PART_left);
+}
 }
 
 int main()
 {
     testCreateChannelsUsesMidiTracks();
     testCreateChannelsHonorsSelectedHand();
+    testCreateChannelsReadsSiblingChannelTracksWithoutAudioSplit();
 
     if (failures == 0) {
         std::cout << "Chord split hand tests passed\n";

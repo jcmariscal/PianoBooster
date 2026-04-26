@@ -29,6 +29,7 @@ void testSongDataDefaults()
     expectInt("default duration", static_cast<int>(song.durationTicks), 0);
     expectBool("events empty", song.events.isEmpty(), true);
     expectBool("notes empty", song.notes.isEmpty(), true);
+    expectBool("chord annotations empty", song.chordAnnotations.isEmpty(), true);
     expectBool("channel index empty", song.eventIndexesByChannel[0].isEmpty(), true);
     expectBool("track index empty", song.eventIndexesByTrack.isEmpty(), true);
 }

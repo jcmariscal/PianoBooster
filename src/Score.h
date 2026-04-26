@@ -138,6 +138,7 @@ private:
     void drawSynthesiaNoteBodies(const ScoreViewport& viewport);
     void drawSynthesiaNoteLabels(const ScoreViewport& viewport);
     void drawScoreSlot(const ScoreSlot& scoreSlot, const ScoreViewport& viewport);
+    void drawChordAnnotations(const ScoreViewport& viewport);
     void collectScoreKeyLights(const ScoreViewport& viewport,
                                CSynthesiaKeyLight *lights, int lightCount) const;
     void applySlotFeedback(CSlot *slot, const ScoreSlot& scoreSlot) const;
@@ -150,6 +151,7 @@ private:
     CRating* m_rating;
     QVector<ScoreSlot> m_scoreSlots[MAX_MIDI_CHANNELS];
     QVector<NoteEvent> m_noteEvents;
+    QVector<ChordAnnotation> m_chordAnnotations;
     ScoreFeedback m_feedback[MAX_MIDI_NOTES];
     qint64 m_currentTick;
     int m_activeScroll;

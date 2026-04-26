@@ -45,6 +45,7 @@ void CTrackList::reset(int numberOfTracks)
     m_splitHandNotes.clear();
     m_splitHandsChannel = -1;
     m_splitHandsChannelCount = 0;
+    m_trackCount = numberOfTracks;
     for (int chan = 0; chan < MAX_MIDI_CHANNELS; chan++) {
         for (int i = 0; i < MAX_MIDI_NOTES; i++) {
             m_noteFrequency[chan][i]=0;
@@ -82,15 +83,9 @@ QList<int> CTrackList::findSplittableChannels()
 
     if (CNote::splitHandsCreateChannels())
     {
-        QList<int> channelsWithHandTracks;
-        for (int i = 0; i < activeNonDrumChannels.count(); i++)
-        {
-            const int chan = activeNonDrumChannels.at(i);
-            if (m_midiChannels[chan].rightHandTrack() >= 0)
-                channelsWithHandTracks.append(chan);
-        }
-        if (channelsWithHandTracks.count() > 0)
-            return channelsWithHandTracks;
+        const QList<int> byTrackChannels = trackSplitChannels(activeNonDrumChannels, pianoChannels);
+        if (byTrackChannels.count() > 0)
+            return byTrackChannels;
         if (activeNonDrumChannels.count() == 1)
             return activeNonDrumChannels;
         return channels;
@@ -105,6 +100,42 @@ QList<int> CTrackList::findSplittableChannels()
         return pianoChannels;
 
     return channels;
+}
+
+QList<int> CTrackList::trackSplitChannels(const QList<int>& activeNonDrumChannels,
+                                          const QList<int>& pianoChannels) const
+{
+    const QList<int> channels = pianoChannels.isEmpty() ? activeNonDrumChannels : pianoChannels;
+    return rightHandTrackForChannels(channels) >= 0 ? channels : QList<int>();
+}
+
+int CTrackList::rightHandTrackForChannels(const QList<int>& channels) const
+{
+    int bestTrack = -1;
+    int activeTrackCount = 0;
+    double bestAveragePitch = -1.0;
+    for (int track = 0; track < m_trackCount; track++)
+    {
+        int noteCount = 0;
+        double pitchSum = 0.0;
+        for (int chan : channels)
+        {
+            if (chan < 0 || chan >= m_midiChannels.size())
+                continue;
+            noteCount += m_midiChannels[chan].noteCountOnTrack(track);
+            pitchSum += m_midiChannels[chan].pitchSumOnTrack(track);
+        }
+        if (noteCount == 0)
+            continue;
+        activeTrackCount++;
+        const double averagePitch = pitchSum / noteCount;
+        if (averagePitch > bestAveragePitch)
+        {
+            bestAveragePitch = averagePitch;
+            bestTrack = track;
+        }
+    }
+    return activeTrackCount > 1 ? bestTrack : -1;
 }
 
 void CTrackList::examineMidiEvent(CMidiEvent event)
@@ -287,6 +318,7 @@ void CTrackList::refresh()
         CNote::setChannelHands(-2, -2);
 
     CNote::clearSplitHandChannels();
+    CNote::clearTrackSplitHandMasks();
     CNote::clearSplitHandAssignments();
     m_splitHandsChannel = -1;
     m_splitHandsChannelCount = 0;
@@ -298,13 +330,25 @@ void CTrackList::refresh()
     }
 
     QList<int> splitHandsChannels = findSplittableChannels();
+    const int splitRightHandTrack = CNote::splitHandsCreateChannels() ?
+                rightHandTrackForChannels(splitHandsChannels) : -1;
     if (splitHandsChannels.count() > 0)
     {
         m_splitHandsChannel = splitHandsChannels.first();
         m_splitHandsChannelCount = splitHandsChannels.count();
         CNote::setChannelHands(m_splitHandsChannel, m_splitHandsChannel);
         for (int i = 0; i < splitHandsChannels.count(); ++i)
-            CNote::setSplitHandChannel(splitHandsChannels.at(i), true);
+        {
+            const int chan = splitHandsChannels.at(i);
+            if (!CNote::splitHandsCreateChannels() || chan == m_splitHandsChannel)
+                CNote::setSplitHandChannel(chan, true);
+            if (splitRightHandTrack >= 0)
+            {
+                CNote::setRightHandTrack(chan, splitRightHandTrack);
+                CNote::setTrackSplitHandMask(chan,
+                                             m_midiChannels[chan].handMaskForRightTrack(splitRightHandTrack));
+            }
+        }
         QVector<CSplitHandNote> notes;
         for (const CSplitHandNote& note : m_splitHandNotes)
             if (CNote::splitHandsForChannel(note.channel))

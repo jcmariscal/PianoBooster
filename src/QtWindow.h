@@ -175,6 +175,7 @@ private slots:
     void on_previousBook()   {  m_sidePanel->nextBook(-1); }
     void on_splitHands(bool checked);
     void on_splitHandsMode();
+    void on_annotateChords(bool checked);
     void onTheme(QAction *action);
     void onViewMode(QAction *action);
     void onScoreScrollPressed();
@@ -242,6 +243,7 @@ private:
     QAction *m_fullScreenStateAct;
     QAction *m_setupPreferencesAct;
     QAction *m_songDetailsAct;
+    QAction *m_annotateChordsAct;
     QAction *m_splitHandsAct;
     QAction *m_splitHandsNaiveAct;
     QAction *m_splitHandsCostAct;

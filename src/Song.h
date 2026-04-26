@@ -46,7 +46,8 @@ class CSong
 {
 public:
     CSong()
-        : m_scoreWin(nullptr)
+        : m_scoreWin(nullptr),
+          m_settings(nullptr)
     {
         CStavePos::setKeySignature( NOT_USED, 0 );
         m_songDataReadIndex = 0;
@@ -148,8 +149,10 @@ private:
     void restoreProgramState(const MidiChannelState& state);
     void restoreControllerState(const MidiChannelState& state);
     void updateTransportLoop();
+    ChordAnnotationOptions chordAnnotationOptions() const;
 
     CScore *m_scoreWin;
+    CSettings *m_settings;
     CConductor m_conductor;
     CMidiFile m_midiFile;
     SongData m_songData;
