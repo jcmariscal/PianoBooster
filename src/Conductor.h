@@ -266,10 +266,12 @@ private:
 
     void addDeltaTime(qint64 ticks);
     void advanceCurrentSongTick(qint64 ticks);
+    void resetCurrentSongTickRemainder();
     void turnOnKeyboardLights(bool on);
 
     qint64 m_playingDeltaTime;
     qint64 m_chordDeltaTime;
+    qint64 m_currentSongTickRemainder;
     TransportState m_transport;
 
     int m_transpose;     // the number of semitones to transpose the music

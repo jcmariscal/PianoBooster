@@ -59,6 +59,7 @@ CConductor::CConductor()
     m_activeChannel = 0;
     m_skill = 0;
     m_chordTimelineIndex = 0;
+    m_currentSongTickRemainder = 0;
     m_silenceTimeOut = 0;
     m_realTimeEventBits = 0;
     m_mutePianistPart = false;
@@ -957,9 +958,20 @@ void CConductor::addDeltaTime(qint64 ticks)
     m_chordDeltaTime += ticks;
 }
 
+void CConductor::resetCurrentSongTickRemainder()
+{
+    m_currentSongTickRemainder = 0;
+}
+
 void CConductor::advanceCurrentSongTick(qint64 ticks)
 {
-    advanceTransportTick(m_transport, deltaAdjustL(ticks));
+    m_currentSongTickRemainder += ticks;
+    const qint64 wholeTicks = deltaAdjustL(m_currentSongTickRemainder);
+    if (wholeTicks != 0)
+    {
+        advanceTransportTick(m_transport, wholeTicks);
+        m_currentSongTickRemainder -= wholeTicks * SPEED_ADJUST_FACTOR;
+    }
     if (m_scoreWin != nullptr)
         m_scoreWin->setCurrentTick(currentSongTick());
 }
@@ -977,6 +989,7 @@ void CConductor::seekForwardToTick(qint64 tick)
     clearPracticeState(&m_practiceState);
     m_playingDeltaTime = 0;
     m_chordDeltaTime = 0;
+    resetCurrentSongTickRemainder();
     if (m_piano)
         m_piano->clear();
 
@@ -1227,6 +1240,7 @@ void CConductor::rewind()
     m_rating.setPlayAlongMode(m_playMode == PB_PLAY_MODE_playAlong);
     m_playingDeltaTime = 0;
     setTransportCurrentTick(m_transport, 0);
+    resetCurrentSongTickRemainder();
     setPlaybackReadPosition(0);
     m_tempo.reset();
 
