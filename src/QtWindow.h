@@ -175,6 +175,8 @@ private slots:
     void on_previousBook()   {  m_sidePanel->nextBook(-1); }
     void on_splitHands(bool checked);
     void on_splitHandsMode();
+    void on_splitHandsClusterNormalSpan();
+    void on_splitHandsClusterWideSpan();
     void on_annotateChords(bool checked);
     void on_annotateChordsConfig(QAction *action);
     void on_annotateChordsMaxSegments();
@@ -207,6 +209,7 @@ private:
     void createViewModeActions();
     void createMenus();
     void addViewModeMenu();
+    void applySplitHandsClusterSpanSettings(int normalMaxSpan, int repeatedWideMaxSpan);
     QAction* addAnnotateChordsConfigAction(const QString &text,
                                            const QString &toolTip,
                                            const QString &configName);
@@ -259,6 +262,8 @@ private:
     QAction *m_splitHandsClusterAct;
     QAction *m_splitHandsVoicesAct;
     QAction *m_splitHandsCreateChannelsAct;
+    QAction *m_splitHandsClusterNormalSpanAct;
+    QAction *m_splitHandsClusterWideSpanAct;
     QActionGroup *m_splitHandsModeGroup;
 
     QMenu *m_fileMenu;

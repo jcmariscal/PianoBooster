@@ -41,6 +41,9 @@ constexpr const char ChordConfigLeadSheet[] = "lead-sheet";
 constexpr const char ChordConfigLeadSheetRepeats[] = "lead-sheet-repeats";
 constexpr const char ChordConfigSetting[] = "Song/AnnotateChordConfiguration";
 constexpr int ChordConfigMaxSegmentsLimit = 4;
+constexpr int ClusterNormalMaxSpanDefault = MIDI_OCTAVE;
+constexpr int ClusterWideMaxSpanDefault = MIDI_OCTAVE + 4;
+constexpr int ClusterMaxSpanLimit = MIDI_OCTAVE * 2;
 
 int scrollValueForTick(qint64 tick, qint64 duration)
 {
@@ -112,6 +115,11 @@ QtWindow::QtWindow()
     CNote::setSplitHands(m_settings->value("Song/SplitHands", false).toBool());
     CNote::setSplitHandsMode(static_cast<splitHandsMode_t>(
         m_settings->value("Song/SplitHandsMode", PB_SPLIT_HANDS_naive).toInt()));
+    applySplitHandsClusterSpanSettings(
+                m_settings->value("Song/SplitHandsClusterNormalMaxSpan",
+                                  ClusterNormalMaxSpanDefault).toInt(),
+                m_settings->value("Song/SplitHandsClusterWideMaxSpan",
+                                  ClusterWideMaxSpanDefault).toInt());
 
     decodeCommandLine();
 
@@ -581,6 +589,18 @@ void QtWindow::createActions()
     m_splitHandsModeGroup->addAction(m_splitHandsCreateChannelsAct);
     connect(m_splitHandsCreateChannelsAct, SIGNAL(triggered()), this, SLOT(on_splitHandsMode()));
 
+    m_splitHandsClusterNormalSpanAct = new QAction(tr("Cluster &Normal Max Span..."), this);
+    m_splitHandsClusterNormalSpanAct->setToolTip(
+                tr("Set the normal maximum hand span for clustering split hands"));
+    connect(m_splitHandsClusterNormalSpanAct, SIGNAL(triggered()),
+            this, SLOT(on_splitHandsClusterNormalSpan()));
+
+    m_splitHandsClusterWideSpanAct = new QAction(tr("Cluster Repeated &Wide Max Span..."), this);
+    m_splitHandsClusterWideSpanAct->setToolTip(
+                tr("Set the maximum hand span allowed for repeated wide clustering patterns"));
+    connect(m_splitHandsClusterWideSpanAct, SIGNAL(triggered()),
+            this, SLOT(on_splitHandsClusterWideSpan()));
+
     if (CNote::splitHandsMode() == PB_SPLIT_HANDS_createChannels)
         m_splitHandsCreateChannelsAct->setChecked(true);
     else if (CNote::splitHandsMode() == PB_SPLIT_HANDS_voices)
@@ -678,6 +698,9 @@ void QtWindow::createMenus()
     m_splitHandsConfigMenu->addAction(m_splitHandsCostAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsClusterAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsVoicesAct);
+    m_splitHandsConfigMenu->addSeparator();
+    m_splitHandsConfigMenu->addAction(m_splitHandsClusterNormalSpanAct);
+    m_splitHandsConfigMenu->addAction(m_splitHandsClusterWideSpanAct);
     m_songMenu->addAction(m_annotateChordsAct);
     m_annotateChordsConfigMenu = m_songMenu->addMenu(tr("Annotate Chords &Configuration"));
     for (QAction *action : m_annotateChordsConfigGroup->actions())
@@ -716,6 +739,15 @@ void QtWindow::addViewModeMenu()
     QMenu *modeMenu = m_viewMenu->addMenu(tr("&Mode"));
     modeMenu->addAction(m_scoreModeAct);
     modeMenu->addAction(m_synthesiaModeAct);
+}
+
+void QtWindow::applySplitHandsClusterSpanSettings(int normalMaxSpan, int repeatedWideMaxSpan)
+{
+    CNote::setClusterMaxHandSpans(normalMaxSpan, repeatedWideMaxSpan);
+    if (m_settings == nullptr)
+        return;
+    m_settings->setValue("Song/SplitHandsClusterNormalMaxSpan", CNote::clusterNormalMaxHandSpan());
+    m_settings->setValue("Song/SplitHandsClusterWideMaxSpan", CNote::clusterRepeatedWideMaxHandSpan());
 }
 
 QAction* QtWindow::addAnnotateChordsConfigAction(const QString &text,
@@ -836,6 +868,37 @@ void QtWindow::on_splitHandsMode()
     m_controller->rewind();
     m_sidePanel->refresh();
     m_controller->forceScoreRedraw();
+}
+
+void QtWindow::on_splitHandsClusterNormalSpan()
+{
+    bool accepted = false;
+    const int current = CNote::clusterNormalMaxHandSpan();
+    const int value = QInputDialog::getInt(this, tr("Cluster Normal Max Span"),
+                                           tr("Normal max hand span, in semitones:"),
+                                           current, 1, ClusterMaxSpanLimit, 1, &accepted);
+    if (!accepted)
+        return;
+    applySplitHandsClusterSpanSettings(value, CNote::clusterRepeatedWideMaxHandSpan());
+    m_controller->rebuildScoreData();
+    m_sidePanel->refresh();
+    m_glWidget->update();
+}
+
+void QtWindow::on_splitHandsClusterWideSpan()
+{
+    bool accepted = false;
+    const int normal = CNote::clusterNormalMaxHandSpan();
+    const int current = qMax(normal, CNote::clusterRepeatedWideMaxHandSpan());
+    const int value = QInputDialog::getInt(this, tr("Cluster Repeated Wide Max Span"),
+                                           tr("Repeated wide-pattern max hand span, in semitones:"),
+                                           current, normal, ClusterMaxSpanLimit, 1, &accepted);
+    if (!accepted)
+        return;
+    applySplitHandsClusterSpanSettings(normal, value);
+    m_controller->rebuildScoreData();
+    m_sidePanel->refresh();
+    m_glWidget->update();
 }
 
 void QtWindow::on_annotateChords(bool checked)

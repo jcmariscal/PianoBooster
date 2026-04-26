@@ -13,12 +13,25 @@ void expectInt(const char *name, int actual, int expected)
     failures++;
 }
 
-CMidiEvent noteOn(int channel, int track, int pitch)
+CMidiEvent noteOn(int channel, int track, int pitch, int onset = 0)
 {
     CMidiEvent event;
     event.noteOnEvent(0, channel, pitch, 80);
     event.setTrack(track);
+    event.setAbsoluteTime(onset);
     return event;
+}
+
+CSplitHandNote splitNote(int pitch, int onset, int duration)
+{
+    CSplitHandNote note;
+    note.pitch = pitch;
+    note.onset = onset;
+    note.offset = onset + duration;
+    note.velocity = 80;
+    note.channel = 0;
+    note.track = 0;
+    return note;
 }
 
 void useCreateChannelsMode(int channel, int rightHandTrack)
@@ -29,6 +42,16 @@ void useCreateChannelsMode(int channel, int rightHandTrack)
     CNote::setChannelHands(channel, channel);
     CNote::setSplitHandChannel(channel, true);
     CNote::setRightHandTrack(channel, rightHandTrack);
+}
+
+void useClusterMode()
+{
+    CNote::reset();
+    CNote::setSplitHands(true);
+    CNote::setSplitHandsMode(PB_SPLIT_HANDS_cluster);
+    CNote::setClusterMaxHandSpans(MIDI_OCTAVE, MIDI_OCTAVE + 4);
+    CNote::setChannelHands(0, 0);
+    CNote::setSplitHandChannel(0, true);
 }
 
 void testCreateChannelsUsesMidiTracks()
@@ -74,6 +97,64 @@ void testCreateChannelsReadsSiblingChannelTracksWithoutAudioSplit()
               CNote::findHand(noteOn(4, 0, 80), 0, PB_PART_both),
               PB_PART_left);
 }
+
+void testClusterRepairsIsolatedWideSpan()
+{
+    useClusterMode();
+    const int beat = CMidiFile::getPulsesPerQuarterNote();
+    QVector<CSplitHandNote> notes;
+    notes.append(splitNote(72, 0, beat));
+    notes.append(splitNote(77, 0, beat));
+    notes.append(splitNote(85, 0, beat));
+    CNote::assignSplitHands(notes);
+
+    expectInt("cluster wide low note moves left",
+              CNote::findHand(noteOn(0, 0, 72), 0, PB_PART_both),
+              PB_PART_left);
+    expectInt("cluster wide middle stays right",
+              CNote::findHand(noteOn(0, 0, 77), 0, PB_PART_both),
+              PB_PART_right);
+    expectInt("cluster wide top stays right",
+              CNote::findHand(noteOn(0, 0, 85), 0, PB_PART_both),
+              PB_PART_right);
+}
+
+void testClusterAllowsRepeatedSixteenSemitonePattern()
+{
+    useClusterMode();
+    const int beat = CMidiFile::getPulsesPerQuarterNote();
+    QVector<CSplitHandNote> notes;
+    for (int onset : {0, 8 * beat, 16 * beat})
+        for (int pitch : {72, 76, 88})
+            notes.append(splitNote(pitch, onset, beat));
+    CNote::assignSplitHands(notes);
+
+    expectInt("cluster sixteen-semitone pattern low remains right",
+              CNote::findHand(noteOn(0, 0, 72), 0, PB_PART_both),
+              PB_PART_right);
+    expectInt("cluster sixteen-semitone pattern top remains right",
+              CNote::findHand(noteOn(0, 0, 88), 0, PB_PART_both),
+              PB_PART_right);
+}
+
+void testClusterCustomNormalSpan()
+{
+    useClusterMode();
+    CNote::setClusterMaxHandSpans(MIDI_OCTAVE + 4, MIDI_OCTAVE + 4);
+    const int beat = CMidiFile::getPulsesPerQuarterNote();
+    QVector<CSplitHandNote> notes;
+    notes.append(splitNote(72, 0, beat));
+    notes.append(splitNote(77, 0, beat));
+    notes.append(splitNote(85, 0, beat));
+    CNote::assignSplitHands(notes);
+
+    expectInt("cluster custom normal span keeps low note right",
+              CNote::findHand(noteOn(0, 0, 72), 0, PB_PART_both),
+              PB_PART_right);
+    expectInt("cluster custom normal span keeps top note right",
+              CNote::findHand(noteOn(0, 0, 85), 0, PB_PART_both),
+              PB_PART_right);
+}
 }
 
 int main()
@@ -81,6 +162,9 @@ int main()
     testCreateChannelsUsesMidiTracks();
     testCreateChannelsHonorsSelectedHand();
     testCreateChannelsReadsSiblingChannelTracksWithoutAudioSplit();
+    testClusterRepairsIsolatedWideSpan();
+    testClusterAllowsRepeatedSixteenSemitonePattern();
+    testClusterCustomNormalSpan();
 
     if (failures == 0) {
         std::cout << "Chord split hand tests passed\n";

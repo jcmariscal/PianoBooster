@@ -42,6 +42,8 @@ bool CNote::m_splitHandChannel[MAX_MIDI_CHANNELS];
 int CNote::m_trackSplitHandMask[MAX_MIDI_CHANNELS];
 bool CNote::m_splitHands = false;
 splitHandsMode_t CNote::m_splitHandsMode = PB_SPLIT_HANDS_naive;
+int CNote::m_clusterNormalMaxHandSpan = MIDI_OCTAVE;
+int CNote::m_clusterRepeatedWideMaxHandSpan = MIDI_OCTAVE + 4;
 
 whichPart_t CNote::m_activeHand = PB_PART_both;
 
@@ -49,6 +51,10 @@ int CChord::m_cfg_highestPianoNote = 127; // The highest note on the users piano
 int CChord::m_cfg_lowestPianoNote = 0;
 
 namespace {
+constexpr int ClusterDefaultMaxHandSpan = MIDI_OCTAVE;
+constexpr int ClusterWideMaxHandSpan = MIDI_OCTAVE + 4;
+constexpr int ClusterAbsoluteMaxHandSpan = MIDI_OCTAVE * 2;
+constexpr int ClusterWidePatternCount = 3;
 
 struct SplitActiveNote
 {
@@ -537,6 +543,18 @@ QVector<int> activeIndexes(const QVector<CSplitHandNote>& notes, const QVector<w
     return active;
 }
 
+QVector<int> activeIndexesAt(const QVector<CSplitHandNote>& notes, int time)
+{
+    QVector<int> active;
+    for (int i = 0; i < notes.count(); ++i)
+        if (notes[i].onset <= time && notes[i].offset > time)
+            active.append(i);
+    std::sort(active.begin(), active.end(), [&notes](int a, int b) {
+        return notes[a].pitch == notes[b].pitch ? a < b : notes[a].pitch < notes[b].pitch;
+    });
+    return active;
+}
+
 int spanOfIndexes(const QVector<int>& indexes, const QVector<CSplitHandNote>& notes)
 {
     if (indexes.count() <= 1)
@@ -550,34 +568,85 @@ int spanOfIndexes(const QVector<int>& indexes, const QVector<CSplitHandNote>& no
     return high - low;
 }
 
-int farthestFromMean(const QVector<int>& indexes, const QVector<CSplitHandNote>& notes)
+int spanOfRange(const QVector<int>& indexes, const QVector<CSplitHandNote>& notes, int first, int last)
 {
-    double mean = 0.0;
-    for (int idx : indexes)
-        mean += notes[idx].pitch;
-    mean /= std::max(1, indexes.count());
-    int farthest = indexes.first();
-    for (int idx : indexes)
-        if (std::abs(notes[idx].pitch - mean) > std::abs(notes[farthest].pitch - mean))
-            farthest = idx;
-    return farthest;
+    if (last - first <= 1)
+        return 0;
+    return notes[indexes[last - 1]].pitch - notes[indexes[first]].pitch;
 }
 
-void repairHandAt(QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes, int time, whichPart_t hand)
+int clusterSpanLimit(const QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes,
+                     whichPart_t hand, int normalMaxSpan, int repeatedWideMaxSpan)
 {
-    QVector<int> active = activeIndexes(notes, labels, time, hand);
-    while (active.count() > 5 || spanOfIndexes(active, notes) > 14) {
-        int outlier = farthestFromMean(active, notes);
-        labels[outlier] = (hand == PB_PART_right) ? PB_PART_left : PB_PART_right;
-        active = activeIndexes(notes, labels, time, hand);
-    }
-}
-
-void repairClusterLabels(QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes)
-{
+    int wide = 0;
+    int previousOnset = -1;
     for (int idx : noteOrderByTime(notes)) {
-        repairHandAt(labels, notes, notes[idx].onset, PB_PART_left);
-        repairHandAt(labels, notes, notes[idx].onset, PB_PART_right);
+        if (notes[idx].onset == previousOnset)
+            continue;
+        previousOnset = notes[idx].onset;
+        const int span = spanOfIndexes(activeIndexes(notes, labels, notes[idx].onset, hand), notes);
+        if (span >= normalMaxSpan && span <= repeatedWideMaxSpan)
+            wide++;
+    }
+    return wide >= ClusterWidePatternCount ? repeatedWideMaxSpan : normalMaxSpan;
+}
+
+int partitionCost(const QVector<int>& active, const QVector<whichPart_t>& labels, int split)
+{
+    int cost = 0;
+    for (int i = 0; i < active.count(); ++i) {
+        const whichPart_t hand = i < split ? PB_PART_left : PB_PART_right;
+        if (labels[active[i]] != hand)
+            cost++;
+    }
+    return cost;
+}
+
+int bestActiveSplit(const QVector<int>& active, const QVector<whichPart_t>& labels,
+                    const QVector<CSplitHandNote>& notes, int leftLimit, int rightLimit)
+{
+    int bestSplit = -1;
+    int bestCost = 1000000;
+    for (int split = 0; split <= active.count(); ++split) {
+        if (split > 5 || active.count() - split > 5)
+            continue;
+        if (spanOfRange(active, notes, 0, split) > leftLimit ||
+                spanOfRange(active, notes, split, active.count()) > rightLimit)
+            continue;
+        const int cost = partitionCost(active, labels, split);
+        if (cost < bestCost)
+        {
+            bestCost = cost;
+            bestSplit = split;
+        }
+    }
+    return bestSplit;
+}
+
+void applyActiveSplit(QVector<whichPart_t>& labels, const QVector<int>& active, int split)
+{
+    for (int i = 0; i < active.count(); ++i)
+        labels[active[i]] = i < split ? PB_PART_left : PB_PART_right;
+}
+
+void repairClusterAt(QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes,
+                     int time, int leftLimit, int rightLimit)
+{
+    const QVector<int> active = activeIndexesAt(notes, time);
+    if (active.count() <= 1)
+        return;
+    const int split = bestActiveSplit(active, labels, notes, leftLimit, rightLimit);
+    if (split >= 0)
+        applyActiveSplit(labels, active, split);
+}
+
+void repairClusterLabels(QVector<whichPart_t>& labels, const QVector<CSplitHandNote>& notes,
+                         int normalMaxSpan, int repeatedWideMaxSpan)
+{
+    const int leftLimit = clusterSpanLimit(labels, notes, PB_PART_left, normalMaxSpan, repeatedWideMaxSpan);
+    const int rightLimit = clusterSpanLimit(labels, notes, PB_PART_right, normalMaxSpan, repeatedWideMaxSpan);
+    for (int idx : noteOrderByTime(notes)) {
+        repairClusterAt(labels, notes, notes[idx].onset, leftLimit, rightLimit);
     }
 }
 
@@ -600,7 +669,8 @@ QVector<whichPart_t> clusterSplitHands(const QVector<CSplitHandNote>& notes)
         if (totalWeight[i] > 0.0)
             labels[i] = (rightScore[i] / totalWeight[i] > 0.5) ? PB_PART_right : PB_PART_left;
     suppressFlipFlops(labels, notes);
-    repairClusterLabels(labels, notes);
+    repairClusterLabels(labels, notes, CNote::clusterNormalMaxHandSpan(),
+                        CNote::clusterRepeatedWideMaxHandSpan());
     return labels;
 }
 
@@ -766,7 +836,7 @@ QVector<whichPart_t> voiceSplitHands(const QVector<CSplitHandNote>& notes)
     QVector<int> voiceIds = separateVoices(notes, 6);
     QVector<QVector<int>> voices = notesByVoice(voiceIds);
     QVector<whichPart_t> labels = labelsFromVoiceMask(voiceIds, bestVoiceMask(voices, notes));
-    repairClusterLabels(labels, notes);
+    repairClusterLabels(labels, notes, ClusterDefaultMaxHandSpan, ClusterWideMaxHandSpan);
     return labels;
 }
 
@@ -783,6 +853,13 @@ void CNote::reset()
     clearSplitHandChannels();
     clearTrackSplitHandMasks();
     clearSplitHandAssignments();
+}
+
+void CNote::setClusterMaxHandSpans(int normalMaxSpan, int repeatedWideMaxSpan)
+{
+    m_clusterNormalMaxHandSpan = std::max(1, std::min(ClusterAbsoluteMaxHandSpan, normalMaxSpan));
+    m_clusterRepeatedWideMaxHandSpan = std::max(m_clusterNormalMaxHandSpan,
+                                                std::min(ClusterAbsoluteMaxHandSpan, repeatedWideMaxSpan));
 }
 
 void CNote::setChannelHands(int left, int right)

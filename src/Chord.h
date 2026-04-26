@@ -130,6 +130,9 @@ public:
     static splitHandsMode_t splitHandsMode(){return m_splitHandsMode;}
     static bool splitHandsNaive(){return m_splitHandsMode == PB_SPLIT_HANDS_naive;}
     static bool splitHandsCreateChannels(){return m_splitHandsMode == PB_SPLIT_HANDS_createChannels;}
+    static void setClusterMaxHandSpans(int normalMaxSpan, int repeatedWideMaxSpan);
+    static int clusterNormalMaxHandSpan(){return m_clusterNormalMaxHandSpan;}
+    static int clusterRepeatedWideMaxHandSpan(){return m_clusterRepeatedWideMaxHandSpan;}
     static bool splitHandsForChannel(int channel)
     {
         if (!m_splitHands)
@@ -161,6 +164,8 @@ private:
     static bool m_splitHands;
     static splitHandsMode_t m_splitHandsMode;
     static whichPart_t m_activeHand;
+    static int m_clusterNormalMaxHandSpan;
+    static int m_clusterRepeatedWideMaxHandSpan;
     static bool m_splitHandChannel[MAX_MIDI_CHANNELS];
     static int m_trackSplitHandMask[MAX_MIDI_CHANNELS];
     // -1 means there is a single track and no separate left and right hand parts
