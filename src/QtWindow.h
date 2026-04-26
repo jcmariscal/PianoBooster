@@ -176,6 +176,8 @@ private slots:
     void on_splitHands(bool checked);
     void on_splitHandsMode();
     void on_annotateChords(bool checked);
+    void on_annotateChordsConfig(QAction *action);
+    void on_annotateChordsMaxSegments();
     void onTheme(QAction *action);
     void onViewMode(QAction *action);
     void onScoreScrollPressed();
@@ -205,6 +207,11 @@ private:
     void createViewModeActions();
     void createMenus();
     void addViewModeMenu();
+    QAction* addAnnotateChordsConfigAction(const QString &text,
+                                           const QString &toolTip,
+                                           const QString &configName);
+    void selectAnnotateChordsConfigAction(const QString &configName);
+    void applyAnnotateChordsConfig(const QString &configName);
     void readSettings();
     void writeSettings();
     void seekWithScoreScrollbar(int value);
@@ -244,6 +251,8 @@ private:
     QAction *m_setupPreferencesAct;
     QAction *m_songDetailsAct;
     QAction *m_annotateChordsAct;
+    QAction *m_annotateChordsMaxSegmentsAct;
+    QActionGroup *m_annotateChordsConfigGroup;
     QAction *m_splitHandsAct;
     QAction *m_splitHandsNaiveAct;
     QAction *m_splitHandsCostAct;
@@ -257,6 +266,7 @@ private:
     QMenu *m_themeMenu;
     QMenu *m_songMenu;
     QMenu *m_splitHandsConfigMenu;
+    QMenu *m_annotateChordsConfigMenu;
     QMenu *m_setupMenu;
     QMenu *m_helpMenu;
 

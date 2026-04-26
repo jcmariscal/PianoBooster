@@ -304,6 +304,12 @@ void ApplicationController::invalidateScoreRendererCaches()
         m_song->invalidateScoreRendererCaches();
 }
 
+void ApplicationController::rebuildScoreData()
+{
+    if (m_song != nullptr)
+        m_song->rebuildScoreData();
+}
+
 void ApplicationController::forceScoreRedraw()
 {
     if (m_song != nullptr)

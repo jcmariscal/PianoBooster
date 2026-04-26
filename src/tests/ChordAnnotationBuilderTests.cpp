@@ -23,6 +23,14 @@ void expectBool(const char *name, bool actual, bool expected)
     failures++;
 }
 
+void expectInt(const char *name, int actual, int expected)
+{
+    if (actual == expected)
+        return;
+    std::cerr << name << ": expected " << expected << ", got " << actual << '\n';
+    failures++;
+}
+
 NoteEvent note(int pitch, qint64 start, qint64 duration, int channel = 0)
 {
     NoteEvent event;
@@ -201,6 +209,62 @@ void testSourceChannelFilter()
     const QVector<ChordAnnotation> annotations = buildChordAnnotations(song, fourFourBars(1), options);
     expectString("source channel", annotations.first().label, QStringLiteral("F"));
 }
+
+void testIntraBarSegmentation()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    for (int pitch : {48, 52, 55})
+        song.notes.append(note(pitch, 0, 2 * SongDataDefaultPpqn));
+    for (int pitch : {55, 59, 62, 65})
+        song.notes.append(note(pitch, 2 * SongDataDefaultPpqn, 2 * SongDataDefaultPpqn));
+    ChordAnnotationOptions options;
+    options.keySignature = 0;
+    options.useSmoothing = false;
+    options.intraBarSegmentation = true;
+    options.maxSegmentsPerBar = 2;
+    const QVector<ChordAnnotation> annotations = buildChordAnnotations(song, fourFourBars(1), options);
+    expectInt("intra-bar split count", annotations.size(), 2);
+    expectString("intra-bar first", annotations[0].label, QStringLiteral("C"));
+    expectString("intra-bar second", annotations[1].label, QStringLiteral("G7"));
+    expectBool("intra-bar second start", annotations[1].startTick == 2 * SongDataDefaultPpqn, true);
+}
+
+void testPassingToneDoesNotSplitBar()
+{
+    SongData song = oneBarSong({48, 52, 55});
+    song.notes.append(note(50, 2 * SongDataDefaultPpqn, 12));
+    ChordAnnotationOptions options;
+    options.keySignature = 0;
+    options.useSmoothing = false;
+    options.intraBarSegmentation = true;
+    options.maxSegmentsPerBar = 2;
+    const QVector<ChordAnnotation> annotations = buildChordAnnotations(song, fourFourBars(1), options);
+    expectInt("passing tone split count", annotations.size(), 1);
+    expectString("passing tone unsplit", annotations[0].label, QStringLiteral("C"));
+}
+
+void testMaxSegmentsPerBar()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    for (int pitch : {48, 52, 55})
+        song.notes.append(note(pitch, 0, SongDataDefaultPpqn));
+    for (int pitch : {53, 57, 60})
+        song.notes.append(note(pitch, SongDataDefaultPpqn, SongDataDefaultPpqn));
+    for (int pitch : {55, 59, 62})
+        song.notes.append(note(pitch, 2 * SongDataDefaultPpqn, 2 * SongDataDefaultPpqn));
+    ChordAnnotationOptions options;
+    options.keySignature = 0;
+    options.useSmoothing = false;
+    options.intraBarSegmentation = true;
+    options.maxSegmentsPerBar = 3;
+    const QVector<ChordAnnotation> annotations = buildChordAnnotations(song, fourFourBars(1), options);
+    expectInt("max segment count", annotations.size(), 3);
+    expectString("max segment first", annotations[0].label, QStringLiteral("C"));
+    expectString("max segment second", annotations[1].label, QStringLiteral("F"));
+    expectString("max segment third", annotations[2].label, QStringLiteral("G"));
+}
 }
 
 int main()
@@ -217,6 +281,9 @@ int main()
     testDetailLevels();
     testLowConfidenceModes();
     testSourceChannelFilter();
+    testIntraBarSegmentation();
+    testPassingToneDoesNotSplitBar();
+    testMaxSegmentsPerBar();
 
     if (failures == 0) {
         std::cout << "ChordAnnotationBuilder tests passed\n";

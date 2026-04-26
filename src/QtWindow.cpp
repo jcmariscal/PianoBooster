@@ -35,6 +35,12 @@
 
 namespace {
 constexpr int ScoreScrollRange = 100000;
+constexpr const char ChordConfigBasic[] = "basic";
+constexpr const char ChordConfigSevenths[] = "sevenths";
+constexpr const char ChordConfigLeadSheet[] = "lead-sheet";
+constexpr const char ChordConfigLeadSheetRepeats[] = "lead-sheet-repeats";
+constexpr const char ChordConfigSetting[] = "Song/AnnotateChordConfiguration";
+constexpr int ChordConfigMaxSegmentsLimit = 4;
 
 int scrollValueForTick(qint64 tick, qint64 duration)
 {
@@ -58,6 +64,15 @@ qint64 tickForScrollValue(int value, qint64 duration)
     return static_cast<qint64>(static_cast<double>(value) *
                                static_cast<double>(duration) /
                                static_cast<double>(ScoreScrollRange) + 0.5);
+}
+
+QString normalizedChordConfigName(const QString& name)
+{
+    if (name == QLatin1String(ChordConfigBasic) ||
+            name == QLatin1String(ChordConfigSevenths) ||
+            name == QLatin1String(ChordConfigLeadSheetRepeats))
+        return name;
+    return QString::fromLatin1(ChordConfigLeadSheet);
 }
 }
 
@@ -494,6 +509,35 @@ void QtWindow::createActions()
     m_annotateChordsAct->setChecked(m_settings->value("Song/AnnotateScore", false).toBool());
     connect(m_annotateChordsAct, SIGNAL(toggled(bool)), this, SLOT(on_annotateChords(bool)));
 
+    m_annotateChordsConfigGroup = new QActionGroup(this);
+    m_annotateChordsConfigGroup->setExclusive(true);
+    connect(m_annotateChordsConfigGroup, SIGNAL(triggered(QAction*)),
+            this, SLOT(on_annotateChordsConfig(QAction*)));
+    addAnnotateChordsConfigAction(tr("&Basic"),
+                                  tr("Show simple triads and suspensions"),
+                                  QString::fromLatin1(ChordConfigBasic));
+    addAnnotateChordsConfigAction(tr("&Sevenths"),
+                                  tr("Show triads, sixths, and seventh chords"),
+                                  QString::fromLatin1(ChordConfigSevenths));
+    addAnnotateChordsConfigAction(tr("&Lead Sheet"),
+                                  tr("Show sevenths and strong extensions"),
+                                  QString::fromLatin1(ChordConfigLeadSheet));
+    addAnnotateChordsConfigAction(tr("Lead Sheet + &Repeats"),
+                                  tr("Repeat the previous chord through empty bars"),
+                                  QString::fromLatin1(ChordConfigLeadSheetRepeats));
+    const QString chordConfig = normalizedChordConfigName(
+                m_settings->value(ChordConfigSetting,
+                                  QString::fromLatin1(ChordConfigLeadSheet)).toString());
+    selectAnnotateChordsConfigAction(chordConfig);
+    if (!m_settings->contains(ChordConfigSetting))
+        m_settings->setValue(ChordConfigSetting, chordConfig);
+
+    m_annotateChordsMaxSegmentsAct = new QAction(tr("&Max Segments Per Bar..."), this);
+    m_annotateChordsMaxSegmentsAct->setToolTip(
+                tr("Set 1 for one chord per bar, 2 for up to two chords per bar"));
+    connect(m_annotateChordsMaxSegmentsAct, SIGNAL(triggered()),
+            this, SLOT(on_annotateChordsMaxSegments()));
+
     m_splitHandsAct = new QAction(tr("Split &Hands"), this);
     m_splitHandsAct->setToolTip(tr("Split a single piano part into left and right hands without changing the MIDI file"));
     m_splitHandsAct->setCheckable(true);
@@ -635,6 +679,11 @@ void QtWindow::createMenus()
     m_splitHandsConfigMenu->addAction(m_splitHandsClusterAct);
     m_splitHandsConfigMenu->addAction(m_splitHandsVoicesAct);
     m_songMenu->addAction(m_annotateChordsAct);
+    m_annotateChordsConfigMenu = m_songMenu->addMenu(tr("Annotate Chords &Configuration"));
+    for (QAction *action : m_annotateChordsConfigGroup->actions())
+        m_annotateChordsConfigMenu->addAction(action);
+    m_annotateChordsConfigMenu->addSeparator();
+    m_annotateChordsConfigMenu->addAction(m_annotateChordsMaxSegmentsAct);
     m_songMenu->addSeparator();
     m_songMenu->addAction(m_songDetailsAct);
 
@@ -667,6 +716,55 @@ void QtWindow::addViewModeMenu()
     QMenu *modeMenu = m_viewMenu->addMenu(tr("&Mode"));
     modeMenu->addAction(m_scoreModeAct);
     modeMenu->addAction(m_synthesiaModeAct);
+}
+
+QAction* QtWindow::addAnnotateChordsConfigAction(const QString &text,
+                                                 const QString &toolTip,
+                                                 const QString &configName)
+{
+    QAction *action = new QAction(text, this);
+    action->setToolTip(toolTip);
+    action->setCheckable(true);
+    action->setData(configName);
+    m_annotateChordsConfigGroup->addAction(action);
+    return action;
+}
+
+void QtWindow::selectAnnotateChordsConfigAction(const QString &configName)
+{
+    const QString normalized = normalizedChordConfigName(configName);
+    for (QAction *action : m_annotateChordsConfigGroup->actions())
+    {
+        if (action->data().toString() == normalized)
+        {
+            action->setChecked(true);
+            return;
+        }
+    }
+}
+
+void QtWindow::applyAnnotateChordsConfig(const QString &configName)
+{
+    const QString name = normalizedChordConfigName(configName);
+    int detail = ChordAnnotationExtensions;
+    bool carryEmptyBars = name == QLatin1String(ChordConfigLeadSheetRepeats);
+    if (name == QLatin1String(ChordConfigBasic))
+        detail = ChordAnnotationBasic;
+    else if (name == QLatin1String(ChordConfigSevenths))
+        detail = ChordAnnotationSevenths;
+    const int maxSegments = qBound(1, m_settings->value("Song/AnnotateMaxSegmentsPerBar", 1).toInt(),
+                                   ChordConfigMaxSegmentsLimit);
+
+    m_settings->setValue(ChordConfigSetting, name);
+    m_settings->setValue("Song/AnnotateUseSmoothing", true);
+    m_settings->setValue("Song/AnnotateCarryEmptyBars", carryEmptyBars);
+    m_settings->setValue("Song/AnnotateIntraBarSegmentation", maxSegments > 1);
+    m_settings->setValue("Song/AnnotateMaxSegmentsPerBar", maxSegments);
+    m_settings->setValue("Song/AnnotateSourceChannel", -1);
+    m_settings->setValue("Song/AnnotateSourceTrack", -1);
+    m_settings->setValue("Song/AnnotateDetail", detail);
+    m_settings->setValue("Song/AnnotateLowConfidenceMode", ChordAnnotationHideLowConfidence);
+    m_settings->setValue("Song/AnnotateMinConfidence", 0.08);
 }
 
 void QtWindow::openRecentFile()
@@ -744,6 +842,31 @@ void QtWindow::on_annotateChords(bool checked)
 {
     m_settings->setValue("Song/AnnotateScore", checked);
     m_controller->invalidateScoreRendererCaches();
+    m_glWidget->update();
+}
+
+void QtWindow::on_annotateChordsConfig(QAction *action)
+{
+    if (action == nullptr)
+        return;
+    applyAnnotateChordsConfig(action->data().toString());
+    m_controller->rebuildScoreData();
+    m_glWidget->update();
+}
+
+void QtWindow::on_annotateChordsMaxSegments()
+{
+    bool accepted = false;
+    const int current = qBound(1, m_settings->value("Song/AnnotateMaxSegmentsPerBar", 1).toInt(),
+                               ChordConfigMaxSegmentsLimit);
+    const int maxSegments = QInputDialog::getInt(this, tr("Max Segments Per Bar"),
+                                                 tr("Max chord segments per bar:"), current, 1,
+                                                 ChordConfigMaxSegmentsLimit, 1, &accepted);
+    if (!accepted)
+        return;
+    m_settings->setValue("Song/AnnotateMaxSegmentsPerBar", maxSegments);
+    m_settings->setValue("Song/AnnotateIntraBarSegmentation", maxSegments > 1);
+    m_controller->rebuildScoreData();
     m_glWidget->update();
 }
 

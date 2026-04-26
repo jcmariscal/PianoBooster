@@ -82,6 +82,7 @@ public:
     void setTrackHands(int leftRow, int rightRow);
     void invalidateActiveScoreCache();
     void invalidateScoreRendererCaches();
+    void rebuildScoreData();
     void forceScoreRedraw();
     void regenerateChordTimeline();
 

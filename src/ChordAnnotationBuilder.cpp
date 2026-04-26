@@ -8,7 +8,11 @@
 namespace {
 constexpr int PitchClasses = 12;
 constexpr int CandidateLimit = 6;
+constexpr int MaxSegmentsPerBarLimit = 4;
 constexpr double EmptyScore = -0.15;
+constexpr double SplitPenalty = 0.08;
+constexpr double SplitGain = 0.04;
+constexpr double MinSegmentWeightRatio = 0.18;
 
 struct ChordQuality
 {
@@ -34,6 +38,22 @@ struct ChordCandidate
     QString suffix;
     double score = EmptyScore;
     float confidence = 0.0f;
+};
+
+struct ChordSegment
+{
+    int barIndex = -1;
+    qint64 startTick = 0;
+    qint64 endTick = 0;
+    BarFeatures features;
+    QVector<ChordCandidate> candidates;
+    double pathScore = -std::numeric_limits<double>::infinity();
+};
+
+struct SegmentPlan
+{
+    QVector<ChordSegment> segments;
+    double score = -std::numeric_limits<double>::infinity();
 };
 
 const ChordQuality qualities[] = {
@@ -86,6 +106,14 @@ int firstKeySignature(const SongData& song, int fallback)
     return 0;
 }
 
+BarFeatures emptyFeatures()
+{
+    BarFeatures features;
+    features.weight.fill(0.0);
+    features.onsetWeight.fill(0.0);
+    return features;
+}
+
 double noteWeight(const NoteEvent& note, qint64 overlap, bool startsNearDownbeat)
 {
     const double velocity = note.velocity > 0 ? static_cast<double>(note.velocity) / 127.0 : 0.55;
@@ -120,10 +148,7 @@ QVector<BarFeatures> extractFeatures(const SongData& song, const BarMap& bars,
     QVector<int> lowestDownbeat(bars.barStarts.size(), -1);
     QVector<int> lowestBar(bars.barStarts.size(), -1);
     for (BarFeatures& bar : features)
-    {
-        bar.weight.fill(0.0);
-        bar.onsetWeight.fill(0.0);
-    }
+        bar = emptyFeatures();
     for (const NoteEvent& note : song.notes)
     {
         if (!validSource(note, options))
@@ -139,6 +164,24 @@ QVector<BarFeatures> extractFeatures(const SongData& song, const BarMap& bars,
         const int bass = lowestDownbeat[bar] >= 0 ? lowestDownbeat[bar] : lowestBar[bar];
         features[bar].bassPitchClass = bass >= 0 ? normalizedPitchClass(bass) : -1;
     }
+    return features;
+}
+
+BarFeatures extractFeaturesInRange(const SongData& song, const ChordAnnotationOptions& options,
+                                   qint64 start, qint64 end, qint64 beatLength)
+{
+    BarFeatures features = emptyFeatures();
+    int lowestDownbeat = -1;
+    int lowestBar = -1;
+    if (end <= start)
+        return features;
+    for (const NoteEvent& note : song.notes)
+    {
+        if (validSource(note, options))
+            addNote(features, note, start, end, beatLength, lowestDownbeat, lowestBar);
+    }
+    const int bass = lowestDownbeat >= 0 ? lowestDownbeat : lowestBar;
+    features.bassPitchClass = bass >= 0 ? normalizedPitchClass(bass) : -1;
     return features;
 }
 
@@ -274,6 +317,156 @@ QVector<ChordCandidate> candidatesForBar(const BarFeatures& features,
     return result;
 }
 
+int maxSegmentsPerBar(const ChordAnnotationOptions& options)
+{
+    if (!options.intraBarSegmentation)
+        return 1;
+    return std::max(1, std::min(MaxSegmentsPerBarLimit, options.maxSegmentsPerBar));
+}
+
+QVector<qint64> beatBoundaries(const SongData& song, const BarMap& bars, int bar)
+{
+    QVector<qint64> boundaries;
+    const qint64 start = bars.barStarts[bar];
+    const qint64 end = barEndTick(bars, bar);
+    qint64 beat = bars.beatLengths.value(bar, song.ppqn);
+    if (beat <= 0)
+        beat = song.ppqn > 0 ? song.ppqn : end - start;
+    boundaries.append(start);
+    for (qint64 tick = start + beat; beat > 0 && tick < end; tick += beat)
+        boundaries.append(tick);
+    if (boundaries.last() != end)
+        boundaries.append(end);
+    return boundaries;
+}
+
+ChordSegment makeSegment(int bar, qint64 start, qint64 end, const BarFeatures& features,
+                         const ChordAnnotationOptions& options, qint64 barLength)
+{
+    ChordSegment segment;
+    segment.barIndex = bar;
+    segment.startTick = start;
+    segment.endTick = end;
+    segment.features = features;
+    segment.candidates = candidatesForBar(features, options);
+    const double length = static_cast<double>(std::max<qint64>(1, end - start));
+    segment.pathScore = segment.candidates.first().score * length / std::max<qint64>(1, barLength);
+    return segment;
+}
+
+bool sameHarmony(const ChordCandidate& a, const ChordCandidate& b)
+{
+    return a.root == b.root && a.bass == b.bass && a.suffix == b.suffix;
+}
+
+bool validSplitSegment(const ChordSegment& segment, double minWeight)
+{
+    return segment.candidates.first().root >= 0 && segment.features.totalWeight >= minWeight;
+}
+
+bool splitSupported(const ChordSegment& left, const ChordSegment& right, double minWeight)
+{
+    if (!validSplitSegment(left, minWeight) || !validSplitSegment(right, minWeight))
+        return false;
+    const ChordCandidate& chord = right.candidates.first();
+    if (sameHarmony(left.candidates.first(), chord))
+        return false;
+    const double strong = std::max(16.0, right.features.totalWeight * 0.08);
+    return right.features.onsetWeight[chord.root] >= strong ||
+            (right.features.bassPitchClass >= 0 &&
+             right.features.bassPitchClass != left.features.bassPitchClass);
+}
+
+bool canAppendSegment(const QVector<ChordSegment>& segments, int count,
+                      const QVector<QVector<int>>& parent, int k, int start,
+                      int end, double minWeight)
+{
+    const ChordSegment& segment = segments[start * count + end];
+    if (k == 1)
+        return start == 0;
+    if (parent[k - 1][start] < 0)
+        return false;
+    const ChordSegment& previous = segments[parent[k - 1][start] * count + start];
+    return splitSupported(previous, segment, minWeight);
+}
+
+QVector<ChordSegment> reconstructSegments(const QVector<ChordSegment>& segments, int count,
+                                          const QVector<QVector<int>>& parent, int segmentCount)
+{
+    QVector<ChordSegment> result;
+    int end = count - 1;
+    for (int k = segmentCount; k > 0; k--)
+    {
+        const int start = parent[k][end];
+        if (start < 0)
+            return QVector<ChordSegment>();
+        result.prepend(segments[start * count + end]);
+        end = start;
+    }
+    return result;
+}
+
+SegmentPlan bestSegmentPlan(const QVector<ChordSegment>& segments, int count,
+                            int maxSegments, double wholeScore, double minWeight)
+{
+    QVector<QVector<double>> dp(maxSegments + 1, QVector<double>(count, -std::numeric_limits<double>::infinity()));
+    QVector<QVector<int>> parent(maxSegments + 1, QVector<int>(count, -1));
+    dp[0][0] = 0.0;
+    for (int k = 1; k <= maxSegments; k++)
+        for (int end = 1; end < count; end++)
+            for (int start = 0; start < end; start++)
+            {
+                if (dp[k - 1][start] < -1.0e100 ||
+                        !canAppendSegment(segments, count, parent, k, start, end, minWeight))
+                    continue;
+                const double score = dp[k - 1][start] + segments[start * count + end].pathScore -
+                        (k > 1 ? SplitPenalty : 0.0);
+                if (score > dp[k][end])
+                {
+                    dp[k][end] = score;
+                    parent[k][end] = start;
+                }
+            }
+    SegmentPlan plan;
+    for (int k = 2; k <= maxSegments; k++)
+        if (dp[k][count - 1] > wholeScore + SplitGain && dp[k][count - 1] > plan.score)
+        {
+            plan.score = dp[k][count - 1];
+            plan.segments = reconstructSegments(segments, count, parent, k);
+        }
+    return plan;
+}
+
+QVector<ChordSegment> segmentsForBar(const SongData& song, const BarMap& bars,
+                                     const ChordAnnotationOptions& options, int bar,
+                                     const BarFeatures& wholeFeatures)
+{
+    const qint64 start = bars.barStarts[bar];
+    const qint64 end = barEndTick(bars, bar);
+    const qint64 barLength = std::max<qint64>(1, end - start);
+    QVector<ChordSegment> whole;
+    whole.append(makeSegment(bar, start, end, wholeFeatures, options, barLength));
+    const QVector<qint64> boundaries = beatBoundaries(song, bars, bar);
+    const int count = boundaries.size();
+    const int limit = std::min(maxSegmentsPerBar(options), count - 1);
+    if (limit <= 1 || count < 3)
+        return whole;
+    QVector<ChordSegment> intervals(count * count);
+    for (int i = 0; i < count - 1; i++)
+        for (int j = i + 1; j < count; j++)
+        {
+            const bool isWhole = i == 0 && j == count - 1;
+            const BarFeatures features = isWhole ? wholeFeatures :
+                        extractFeaturesInRange(song, options, boundaries[i], boundaries[j],
+                                               bars.beatLengths.value(bar, song.ppqn));
+            intervals[i * count + j] = makeSegment(bar, boundaries[i], boundaries[j], features, options, barLength);
+        }
+    const double minWeight = wholeFeatures.totalWeight * MinSegmentWeightRatio;
+    const SegmentPlan plan = bestSegmentPlan(intervals, count, limit,
+                                             whole.first().candidates.first().score, minWeight);
+    return plan.segments.isEmpty() ? whole : plan.segments;
+}
+
 double transitionScore(const ChordCandidate& from, const ChordCandidate& to)
 {
     if (from.root < 0 || to.root < 0)
@@ -312,13 +505,13 @@ QVector<int> bestPath(const QVector<QVector<ChordCandidate>>& bars)
     return path;
 }
 
-ChordAnnotation annotationFor(const ChordCandidate& candidate, const BarMap& bars,
-                              int bar, int keySignature)
+ChordAnnotation annotationFor(const ChordCandidate& candidate, int bar,
+                              qint64 startTick, qint64 endTick, int keySignature)
 {
     ChordAnnotation annotation;
     annotation.barIndex = bar;
-    annotation.startTick = bars.barStarts[bar];
-    annotation.endTick = barEndTick(bars, bar);
+    annotation.startTick = startTick;
+    annotation.endTick = endTick;
     annotation.rootPitchClass = candidate.root;
     annotation.bassPitchClass = candidate.bass;
     annotation.suffix = candidate.suffix;
@@ -354,6 +547,26 @@ void applyCarryPolicy(QVector<ChordAnnotation>& annotations, bool enabled)
         }
     }
 }
+
+void mergeAdjacentSameHarmony(QVector<ChordAnnotation>& annotations)
+{
+    for (int i = 1; i < annotations.size();)
+    {
+        ChordAnnotation& previous = annotations[i - 1];
+        const ChordAnnotation& current = annotations[i];
+        const bool same = previous.barIndex == current.barIndex &&
+                previous.rootPitchClass == current.rootPitchClass &&
+                previous.bassPitchClass == current.bassPitchClass &&
+                previous.suffix == current.suffix;
+        if (!same)
+        {
+            i++;
+            continue;
+        }
+        previous.endTick = current.endTick;
+        annotations.removeAt(i);
+    }
+}
 }
 
 QVector<ChordAnnotation> buildChordAnnotations(const SongData& song, const BarMap& bars,
@@ -364,23 +577,29 @@ QVector<ChordAnnotation> buildChordAnnotations(const SongData& song, const BarMa
         return annotations;
     const int keySignature = firstKeySignature(song, options.keySignature);
     const QVector<BarFeatures> features = extractFeatures(song, bars, options);
+    QVector<ChordSegment> segments;
     QVector<QVector<ChordCandidate>> candidates;
-    QVector<int> barIndexes;
     for (int bar = 0; bar < bars.barStarts.size(); bar++)
     {
         if (barEndTick(bars, bar) <= bars.barStarts[bar])
             continue;
-        barIndexes.append(bar);
-        candidates.append(candidatesForBar(features[bar], options));
+        const QVector<ChordSegment> barSegments = segmentsForBar(song, bars, options, bar, features[bar]);
+        for (const ChordSegment& segment : barSegments)
+        {
+            segments.append(segment);
+            candidates.append(segment.candidates);
+        }
     }
     if (candidates.isEmpty())
         return annotations;
     const QVector<int> path = options.useSmoothing ? bestPath(candidates) : QVector<int>();
-    for (int bar = 0; bar < candidates.size(); bar++)
+    for (int i = 0; i < candidates.size(); i++)
     {
-        const int index = options.useSmoothing ? path[bar] : 0;
-        annotations.append(annotationFor(candidates[bar][index], bars, barIndexes[bar], keySignature));
+        const int index = options.useSmoothing ? path[i] : 0;
+        annotations.append(annotationFor(candidates[i][index], segments[i].barIndex,
+                                         segments[i].startTick, segments[i].endTick, keySignature));
     }
     applyCarryPolicy(annotations, options.carryEmptyBars);
+    mergeAdjacentSameHarmony(annotations);
     return annotations;
 }

@@ -161,6 +161,15 @@ float validConfidence(double value)
         return 1.0f;
     return static_cast<float>(value);
 }
+
+int validMaxChordSegmentsPerBar(int value)
+{
+    if (value < 1)
+        return 1;
+    if (value > 4)
+        return 4;
+    return value;
+}
 }
 
 void CSong::init2(CScore * scoreWin, CSettings* settings)
@@ -391,6 +400,11 @@ ChordAnnotationOptions CSong::chordAnnotationOptions() const
         return options;
     options.useSmoothing = m_settings->value("Song/AnnotateUseSmoothing", true).toBool();
     options.carryEmptyBars = m_settings->value("Song/AnnotateCarryEmptyBars", false).toBool();
+    options.maxSegmentsPerBar = validMaxChordSegmentsPerBar(
+                m_settings->value("Song/AnnotateMaxSegmentsPerBar", 1).toInt());
+    options.intraBarSegmentation = options.maxSegmentsPerBar > 1;
+    if (!options.intraBarSegmentation)
+        options.maxSegmentsPerBar = 1;
     options.sourceChannel = m_settings->value("Song/AnnotateSourceChannel", -1).toInt();
     options.sourceTrack = m_settings->value("Song/AnnotateSourceTrack", -1).toInt();
     options.detail = validChordAnnotationDetail(

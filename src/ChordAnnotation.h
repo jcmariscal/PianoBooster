@@ -36,6 +36,8 @@ struct ChordAnnotationOptions
 {
     bool useSmoothing = true;
     bool carryEmptyBars = false;
+    bool intraBarSegmentation = false;
+    int maxSegmentsPerBar = 1;
     int keySignature = ChordAnnotationAutoKeySignature;
     int sourceChannel = -1;
     int sourceTrack = -1;
