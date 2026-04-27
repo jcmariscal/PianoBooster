@@ -57,6 +57,7 @@ public:
     void init();
 
     void setSongData(const SongData& song);
+    void setSynthesiaCompingData(const SongData& song);
     void seekToTick(qint64 tick);
     void setCurrentTick(qint64 tick);
     void invalidateActiveScoreCache()
@@ -130,6 +131,9 @@ private:
 
     ScoreViewport currentViewport() const;
     qint64 currentSynthesiaTicks() const;
+    bool showSynthesiaComping() const;
+    const QVector<NoteEvent>& synthesiaNotes() const;
+    bool synthesiaNoteVisible(const NoteEvent& note) const;
     void collectSynthesiaKeyLights(const ScoreViewport& viewport,
                                    CSynthesiaKeyLight *lights, int lightCount);
     void drawSynthesia(bool refresh, const ScoreViewport& viewport);
@@ -151,6 +155,7 @@ private:
     CRating* m_rating;
     QVector<ScoreSlot> m_scoreSlots[MAX_MIDI_CHANNELS];
     QVector<NoteEvent> m_noteEvents;
+    QVector<NoteEvent> m_synthesiaCompingNotes;
     QVector<ChordAnnotation> m_chordAnnotations;
     ScoreFeedback m_feedback[MAX_MIDI_NOTES];
     qint64 m_currentTick;

@@ -89,6 +89,10 @@ void GuiSidePanel::init(ApplicationController* controller, GuiTopBar* topBar)
     repeatSong->setChecked(m_settings->value("SidePanel/repeatSong",false).toBool());
     connect(repeatSong,SIGNAL(stateChanged(int)),this,SLOT(on_repeatSong_released()));
 
+    songCombo->setMaxVisibleItems(28);
+    songCombo->setMinimumContentsLength(24);
+    songCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+
     boostSlider->setMinimum(-100);
     boostSlider->setMaximum(100);
     pianoSlider->setMinimum(-100);
@@ -140,6 +144,56 @@ void GuiSidePanel::loadBookList()
     on_bookCombo_activated(-1);
 }
 
+QStringList GuiSidePanel::songFilterTokens() const
+{
+    QStringList tokens;
+    for (const QString& token : songFilterEdit->text().simplified().split(' '))
+        if (!token.isEmpty())
+            tokens.append(token);
+    return tokens;
+}
+
+bool GuiSidePanel::songMatchesFilter(const QString &songName, const QStringList &tokens) const
+{
+    for (const QString& token : tokens)
+        if (!songName.contains(token, Qt::CaseInsensitive))
+            return false;
+    return true;
+}
+
+void GuiSidePanel::updateSongFilterCount(int shown, int total)
+{
+    if (total <= 0)
+        songFilterCountLabel->setText(tr("No songs"));
+    else if (shown == total)
+        songFilterCountLabel->setText(tr("%1 songs").arg(total));
+    else
+        songFilterCountLabel->setText(tr("%1 of %2 songs").arg(shown).arg(total));
+}
+
+void GuiSidePanel::populateSongCombo(const QString &currentSong)
+{
+    const QStringList tokens = songFilterTokens();
+    int selectedIndex = -1;
+    int shown = 0;
+    const bool wasBlocked = songCombo->blockSignals(true);
+    songCombo->clear();
+    for (const QString& songName : m_allSongNames)
+    {
+        if (!songMatchesFilter(songName, tokens))
+            continue;
+        songCombo->addItem(songName, songName);
+        songCombo->setItemData(songCombo->count() - 1, songName, Qt::ToolTipRole);
+        if (songName == currentSong)
+            selectedIndex = songCombo->count() - 1;
+        shown++;
+    }
+    if (songCombo->count() > 0)
+        songCombo->setCurrentIndex(selectedIndex >= 0 ? selectedIndex : 0);
+    songCombo->blockSignals(wasBlocked);
+    updateSongFilterCount(shown, m_allSongNames.size());
+}
+
 void GuiSidePanel::on_bookCombo_activated (int index)
 {
     QString currentSong;
@@ -148,23 +202,24 @@ void GuiSidePanel::on_bookCombo_activated (int index)
 
     currentSong = m_settings->getCurrentSongName();
 
-    songCombo->clear();
-    QStringList songNames = m_settings->getSongList();
-
-    for (int i = 0; i < songNames.size(); ++i)
-    {
-        songCombo->addItem( songNames.at(i));
-        if (songNames.at(i) == currentSong)
-            songCombo->setCurrentIndex(i);
-    }
-    on_songCombo_activated(0); // Now load the selected song
+    m_allSongNames = m_settings->getSongList();
+    populateSongCombo(currentSong);
+    if (songCombo->count() > 0)
+        on_songCombo_activated(songCombo->currentIndex()); // Now load the selected song
 }
 
 void GuiSidePanel::on_songCombo_activated(int index)
 {
-    Q_UNUSED(index)
-    if (m_controller)
-        m_controller->selectSongName(songCombo->currentText());
+    if (m_controller == nullptr || index < 0 || index >= songCombo->count())
+        return;
+    const QString songName = songCombo->itemData(index).toString();
+    m_controller->selectSongName(songName.isEmpty() ? songCombo->currentText() : songName);
+}
+
+void GuiSidePanel::on_songFilterEdit_textChanged(const QString &text)
+{
+    Q_UNUSED(text)
+    populateSongCombo(m_settings->getCurrentSongName());
 }
 
 void GuiSidePanel::on_rightHandRadio_toggled (bool checked)
@@ -310,8 +365,16 @@ void GuiSidePanel::setSongName(const QString &songName)
 {
     for (int i = 0; i < songCombo->count(); ++i)
     {
-        if (songCombo->itemText(i) == songName)
+        if (songCombo->itemData(i).toString() == songName || songCombo->itemText(i) == songName)
+        {
             songCombo->setCurrentIndex(i);
+            return;
+        }
+    }
+    if (m_allSongNames.contains(songName))
+    {
+        songFilterEdit->clear();
+        populateSongCombo(songName);
     }
 }
 

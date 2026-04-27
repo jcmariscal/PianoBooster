@@ -44,6 +44,7 @@ constexpr const char ChordConfigSetting[] = "Song/AnnotateChordConfiguration";
 constexpr const char ChordModeSetting[] = "Song/AnnotateChordMode";
 constexpr const char AnnotatedChordPlayModeSetting[] = "Song/AnnotatedChordPlayMode";
 constexpr const char ProCompingStylesSetting[] = "Song/AnnotatedChordProCompingStyles";
+constexpr const char SynthesiaCompingViewSetting[] = "View/SynthesiaComping";
 constexpr int ChordConfigMaxSegmentsLimit = 4;
 constexpr int ClusterNormalMaxSpanDefault = MIDI_OCTAVE;
 constexpr int ClusterWideMaxSpanDefault = MIDI_OCTAVE + 4;
@@ -514,6 +515,15 @@ void QtWindow::createActions()
 
     createViewModeActions();
 
+    m_synthesiaCompingViewAct = new QAction(tr("Show &Comping in Synthesia"), this);
+    m_synthesiaCompingViewAct->setToolTip(
+                tr("Show annotated-chord comping notes instead of song notes in Synthesia view"));
+    m_synthesiaCompingViewAct->setCheckable(true);
+    m_synthesiaCompingViewAct->setChecked(
+                m_settings->value(SynthesiaCompingViewSetting, false).toBool());
+    connect(m_synthesiaCompingViewAct, SIGNAL(toggled(bool)),
+            this, SLOT(onSynthesiaCompingView(bool)));
+
     m_themeGroup = new QActionGroup(this);
     m_themeGroup->setExclusive(true);
     connect(m_themeGroup, SIGNAL(triggered(QAction*)), this, SLOT(onTheme(QAction*)));
@@ -862,6 +872,7 @@ void QtWindow::createMenus()
     m_viewMenu->addAction(m_fullScreenStateAct);
     m_viewMenu->addAction(m_viewPianoKeyboard);
     addViewModeMenu();
+    m_viewMenu->addAction(m_synthesiaCompingViewAct);
     m_themeMenu = m_viewMenu->addMenu(tr("&Theme"));
     m_themeMenu->addAction(m_themeSepiaPaperAct);
     m_themeMenu->addAction(m_themeWhitePaperAct);
@@ -1020,6 +1031,7 @@ void QtWindow::applyProCompingStyleMask(int styleMask)
     selectProCompingStyleActions(mask);
     m_settings->setValue(ProCompingStylesSetting, mask);
     m_controller->rebuildPlaybackEvents();
+    m_glWidget->update();
 }
 
 void QtWindow::selectProCompingStyleActions(int styleMask)
@@ -1206,6 +1218,7 @@ void QtWindow::on_annotatedChordPlayMode(QAction *action)
     m_settings->setValue(AnnotatedChordPlayModeSetting,
                          normalizedAnnotatedChordPlayMode(action->data().toInt()));
     m_controller->rebuildPlaybackEvents();
+    m_glWidget->update();
 }
 
 void QtWindow::on_configureProCompingStyles()
@@ -1265,6 +1278,19 @@ void QtWindow::on_proCompingSimpleOnly()
 void QtWindow::on_proCompingAllStyles()
 {
     applyProCompingStyleMask(AnnotatedChordProStyleAll);
+}
+
+void QtWindow::onSynthesiaCompingView(bool checked)
+{
+    m_settings->setValue(SynthesiaCompingViewSetting, checked);
+    if (checked)
+    {
+        Cfg::setViewMode(PB_VIEW_MODE_synthesia);
+        m_settings->setValue("View/Mode", Cfg::viewMode());
+        m_synthesiaModeAct->setChecked(true);
+    }
+    m_controller->invalidateScoreRendererCaches();
+    m_glWidget->update();
 }
 
 void QtWindow::on_annotateChordsMode(QAction *action)

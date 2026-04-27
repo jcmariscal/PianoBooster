@@ -27,6 +27,7 @@
 /*********************************************************************************/
 
 #include "Cfg.h"
+#include "ChordAnnotationPlayback.h"
 #include "Draw.h"
 #include "Notation.h"
 #include "NoteIndex.h"
@@ -36,12 +37,17 @@
 #include "ScoreIndex.h"
 #include "Util.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace {
 constexpr int SynthesiaVisibleBeats = 8;
 constexpr float SynthesiaMinimumNoteHeight = 14.0f;
 constexpr float SynthesiaLabelMargin = 9.0f;
+constexpr const char AnnotatedChordPlayModeSetting[] = "Song/AnnotatedChordPlayMode";
+constexpr const char ProCompingStylesSetting[] = "Song/AnnotatedChordProCompingStyles";
+constexpr const char SynthesiaCompingViewSetting[] = "View/SynthesiaComping";
+constexpr int SynthesiaCompingChannel = MAX_MIDI_CHANNELS - 1;
 
 struct SynthesiaNoteRect
 {
@@ -96,6 +102,95 @@ float synthesiaTopY()
 int synthesiaVisibleTicks()
 {
     return qMax(1, CMidiFile::getPulsesPerQuarterNote() * SynthesiaVisibleBeats);
+}
+
+AnnotatedChordPlayMode scoreAnnotatedChordPlayMode(const CSettings *settings)
+{
+    const int mode = settings == nullptr ? AnnotatedChordPlayRootChord :
+                settings->value(AnnotatedChordPlayModeSetting,
+                                AnnotatedChordPlayRootChord).toInt();
+    if (mode == AnnotatedChordPlayComping || mode == AnnotatedChordPlayProComping)
+        return static_cast<AnnotatedChordPlayMode>(mode);
+    return AnnotatedChordPlayRootChord;
+}
+
+int scoreProCompingStyleMask(const CSettings *settings)
+{
+    const int mask = settings == nullptr ? AnnotatedChordProStyleSimple :
+                settings->value(ProCompingStylesSetting,
+                                AnnotatedChordProStyleSimple).toInt() &
+                AnnotatedChordProStyleAll;
+    return mask == 0 ? AnnotatedChordProStyleSimple : mask;
+}
+
+int synthesiaVisualEventPriority(const MidiEventRecord& record)
+{
+    if (record.event.type() == MIDI_NOTE_OFF)
+        return 0;
+    if (record.event.type() == MIDI_NOTE_ON && record.event.velocity() <= 0)
+        return 0;
+    return 1;
+}
+
+bool closesVisualNote(const MidiEventRecord& record)
+{
+    return record.event.type() == MIDI_NOTE_OFF ||
+            (record.event.type() == MIDI_NOTE_ON && record.event.velocity() <= 0);
+}
+
+NoteEvent synthesiaCompingNote(const MidiEventRecord& record, int id)
+{
+    NoteEvent note;
+    note.id = id;
+    note.startTick = record.absoluteTick;
+    note.endTick = record.absoluteTick + 1;
+    note.pitch = record.event.note();
+    note.velocity = record.event.velocity();
+    note.channel = record.event.channel();
+    note.track = record.track;
+    note.hand = CNote::splitHandForPitch(note.pitch, MIDDLE_C);
+    return note;
+}
+
+QVector<NoteEvent> noteEventsFromPlaybackEvents(QVector<MidiEventRecord> events,
+                                                qint64 songEndTick)
+{
+    std::stable_sort(events.begin(), events.end(), [](const MidiEventRecord& left,
+                     const MidiEventRecord& right) {
+        if (left.absoluteTick != right.absoluteTick)
+            return left.absoluteTick < right.absoluteTick;
+        return synthesiaVisualEventPriority(left) < synthesiaVisualEventPriority(right);
+    });
+    QVector<NoteEvent> notes;
+    int active[MAX_MIDI_NOTES];
+    std::fill(active, active + MAX_MIDI_NOTES, -1);
+    qint64 endTick = qMax<qint64>(1, songEndTick);
+    for (const MidiEventRecord& record : events)
+    {
+        const int pitch = record.event.note();
+        if (pitch < 0 || pitch >= MAX_MIDI_NOTES)
+            continue;
+        endTick = qMax(endTick, record.absoluteTick);
+        if (record.event.type() == MIDI_NOTE_ON && record.event.velocity() > 0)
+        {
+            if (active[pitch] >= 0)
+                notes[active[pitch]].endTick =
+                        qMax(record.absoluteTick, notes[active[pitch]].startTick + 1);
+            const NoteEvent note = synthesiaCompingNote(record, notes.size());
+            active[pitch] = notes.size();
+            notes.append(note);
+        }
+        else if (closesVisualNote(record) && active[pitch] >= 0)
+        {
+            NoteEvent& note = notes[active[pitch]];
+            note.endTick = qMax(record.absoluteTick, note.startTick + 1);
+            active[pitch] = -1;
+        }
+    }
+    for (int pitch = 0; pitch < MAX_MIDI_NOTES; pitch++)
+        if (active[pitch] >= 0)
+            notes[active[pitch]].endTick = qMax(endTick, notes[active[pitch]].startTick + 1);
+    return notes;
 }
 
 float clampFloat(float value, float minValue, float maxValue)
@@ -499,11 +594,21 @@ void CScore::setSongData(const SongData& song)
 {
     m_noteEvents = song.notes;
     m_chordAnnotations = song.chordAnnotations;
+    setSynthesiaCompingData(song);
     clearFeedback();
     for (int channel = 0; channel < arraySize(m_scoreSlots); channel++)
     {
         m_scoreSlots[channel] = buildNotationSlots(song, channel);
     }
+}
+
+void CScore::setSynthesiaCompingData(const SongData& song)
+{
+    const QVector<MidiEventRecord> events = buildAnnotatedChordPlaybackEvents(
+                song, SynthesiaCompingChannel, AnnotatedChordPlaybackVelocity,
+                scoreAnnotatedChordPlayMode(m_settings),
+                scoreProCompingStyleMask(m_settings));
+    m_synthesiaCompingNotes = noteEventsFromPlaybackEvents(events, song.durationTicks);
 }
 
 void CScore::seekToTick(qint64 tick)
@@ -687,6 +792,22 @@ qint64 CScore::currentSynthesiaTicks() const
     return m_currentTick;
 }
 
+bool CScore::showSynthesiaComping() const
+{
+    return m_settings != nullptr &&
+            m_settings->value(SynthesiaCompingViewSetting, false).toBool();
+}
+
+const QVector<NoteEvent>& CScore::synthesiaNotes() const
+{
+    return showSynthesiaComping() ? m_synthesiaCompingNotes : m_noteEvents;
+}
+
+bool CScore::synthesiaNoteVisible(const NoteEvent& note) const
+{
+    return showSynthesiaComping() || noteVisibleForChannel(note, m_activeScroll);
+}
+
 void CScore::clearFeedback()
 {
     for (int i = 0; i < arraySize(m_feedback); i++)
@@ -781,21 +902,23 @@ void CScore::applySlotFeedback(CSlot *slot, const ScoreSlot& scoreSlot) const
 void CScore::collectSynthesiaKeyLights(const ScoreViewport& viewport,
                                        CSynthesiaKeyLight *lights, int lightCount)
 {
-    if (lights == nullptr || lightCount <= 0 || m_activeScroll < 0)
+    const bool compingView = showSynthesiaComping();
+    if (lights == nullptr || lightCount <= 0 || (!compingView && m_activeScroll < 0))
         return;
 
     const float leftX = synthesiaLeftX();
     const float width = synthesiaWhiteKeyWidth();
     const float strikeY = synthesiaStrikeY();
     const float topY = synthesiaTopY();
+    const QVector<NoteEvent>& notes = synthesiaNotes();
     const QVector<int> indexes = visibleNoteIndexes(
-                m_noteEvents, viewport.originTick, viewport.visibleTicks);
+                notes, viewport.originTick, viewport.visibleTicks);
 
     for (int i = 0; i < indexes.size(); i++) {
-        const NoteEvent& note = m_noteEvents[indexes[i]];
-        if (!noteVisibleForChannel(note, m_activeScroll))
+        const NoteEvent& note = notes[indexes[i]];
+        if (!synthesiaNoteVisible(note))
             continue;
-        const ScoreFeedback *feedback = feedbackFor(note.id, note.pitch, -1);
+        const ScoreFeedback *feedback = compingView ? nullptr : feedbackFor(note.id, note.pitch, -1);
         const CColor color = feedback == nullptr ? synthesiaColor(noteHand(note)) :
                 practiceFeedbackColor(feedback->kind);
         const SynthesiaNoteRect rect = makeSynthesiaRect(
@@ -813,21 +936,23 @@ void CScore::drawSynthesiaNotes(const ScoreViewport& viewport)
 
 void CScore::drawSynthesiaNoteBodies(const ScoreViewport& viewport)
 {
-    if (m_activeScroll < 0)
+    const bool compingView = showSynthesiaComping();
+    if (!compingView && m_activeScroll < 0)
         return;
 
     const float leftX = synthesiaLeftX();
     const float width = synthesiaWhiteKeyWidth();
     const float strikeY = synthesiaStrikeY();
     const float topY = synthesiaTopY();
+    const QVector<NoteEvent>& notes = synthesiaNotes();
     const QVector<int> indexes = visibleNoteIndexes(
-                m_noteEvents, viewport.originTick, viewport.visibleTicks);
+                notes, viewport.originTick, viewport.visibleTicks);
 
     for (int i = 0; i < indexes.size(); i++) {
-        const NoteEvent& note = m_noteEvents[indexes[i]];
-        if (!noteVisibleForChannel(note, m_activeScroll))
+        const NoteEvent& note = notes[indexes[i]];
+        if (!synthesiaNoteVisible(note))
             continue;
-        const ScoreFeedback *feedback = feedbackFor(note.id, note.pitch, -1);
+        const ScoreFeedback *feedback = compingView ? nullptr : feedbackFor(note.id, note.pitch, -1);
         const CColor color = feedback == nullptr ? synthesiaColor(noteHand(note)) :
                 practiceFeedbackColor(feedback->kind);
         drawSynthesiaNote(makeSynthesiaRect(note, viewport, strikeY, topY, leftX, width, color),
@@ -837,19 +962,22 @@ void CScore::drawSynthesiaNoteBodies(const ScoreViewport& viewport)
 
 void CScore::drawSynthesiaNoteLabels(const ScoreViewport& viewport)
 {
-    if (m_activeScroll < 0 || m_settings == nullptr || !m_settings->synthesiaNoteNames())
+    const bool compingView = showSynthesiaComping();
+    if ((!compingView && m_activeScroll < 0) ||
+            m_settings == nullptr || !m_settings->synthesiaNoteNames())
         return;
 
     const float leftX = synthesiaLeftX();
     const float width = synthesiaWhiteKeyWidth();
     const float strikeY = synthesiaStrikeY();
     const float topY = synthesiaTopY();
+    const QVector<NoteEvent>& notes = synthesiaNotes();
     const QVector<int> indexes = visibleNoteIndexes(
-                m_noteEvents, viewport.originTick, viewport.visibleTicks);
+                notes, viewport.originTick, viewport.visibleTicks);
 
     for (int i = 0; i < indexes.size(); i++) {
-        const NoteEvent& note = m_noteEvents[indexes[i]];
-        if (!noteVisibleForChannel(note, m_activeScroll))
+        const NoteEvent& note = notes[indexes[i]];
+        if (!synthesiaNoteVisible(note))
             continue;
         const SynthesiaNoteRect rect = makeSynthesiaRect(
                     note, viewport, strikeY, topY, leftX, width, synthesiaColor(noteHand(note)));

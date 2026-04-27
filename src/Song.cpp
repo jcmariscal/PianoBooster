@@ -435,6 +435,8 @@ void CSong::rebuildPlaybackEvents()
                 m_songData, enabled, m_annotatedChordPlaybackChannel,
                 annotatedChordPlayMode(), annotatedChordProStyleMask());
     m_conductor.setPlaybackEvents(&m_playbackEvents);
+    if (m_scoreWin != nullptr)
+        m_scoreWin->setSynthesiaCompingData(m_songData);
     m_conductor.setPlaybackReadPosition(tick);
     if (enabled)
         prepareAnnotatedChordPlaybackChannel();

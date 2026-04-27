@@ -184,6 +184,7 @@ private slots:
     void on_configureProCompingStyles();
     void on_proCompingSimpleOnly();
     void on_proCompingAllStyles();
+    void onSynthesiaCompingView(bool checked);
     void on_annotateChordsMode(QAction *action);
     void on_annotateChordsConfig(QAction *action);
     void on_annotateChordsMaxSegments();
@@ -266,6 +267,7 @@ private:
     QAction *m_viewPianoKeyboard;
     QAction *m_scoreModeAct;
     QAction *m_synthesiaModeAct;
+    QAction *m_synthesiaCompingViewAct;
     QActionGroup *m_viewModeGroup;
     QAction *m_themeSepiaPaperAct;
     QAction *m_themeWhitePaperAct;

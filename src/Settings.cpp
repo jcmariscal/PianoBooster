@@ -43,6 +43,7 @@
 
 #include <QTextStream>
 #include <QFile>
+#include <QDirIterator>
 #include "Settings.h"
 #include "GuiTopBar.h"
 #include "GuiSidePanel.h"
@@ -365,21 +366,18 @@ void CSettings::setActiveHand(whichPart_t hand)
 QStringList CSettings::getSongList()
 {
     debugSettings(("getSongList %s + %s", qPrintable(getCurrentBookName()), qPrintable(m_bookPath)));
-    QDir dirSongs = QDir(m_bookPath + getCurrentBookName());
-    dirSongs.setFilter(QDir::Files);
-    QStringList fileNames = dirSongs.entryList();
-
+    QDir dirSongs(m_bookPath + getCurrentBookName());
     QStringList songNames;
-    for (int i = 0; i < fileNames.size(); i++)
+    QDirIterator it(dirSongs.absolutePath(), QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext())
     {
-        if ( fileNames.at(i).endsWith(".mid", Qt::CaseInsensitive ) ||
-             fileNames.at(i).endsWith(".midi", Qt::CaseInsensitive ) ||
-             fileNames.at(i).endsWith(".kar", Qt::CaseInsensitive ) )
-        {
-            songNames  +=  fileNames.at(i);
-        }
+        const QString fileName = it.next();
+        if (fileName.endsWith(".mid", Qt::CaseInsensitive) ||
+                fileName.endsWith(".midi", Qt::CaseInsensitive) ||
+                fileName.endsWith(".kar", Qt::CaseInsensitive))
+            songNames += dirSongs.relativeFilePath(fileName);
     }
-
+    songNames.sort(Qt::CaseInsensitive);
     return songNames;
 }
 

@@ -92,6 +92,7 @@ public:
 private slots:
     void on_songCombo_activated (int index);
     void on_bookCombo_activated (int index);
+    void on_songFilterEdit_textChanged(const QString &text);
     void on_rightHandRadio_toggled (bool checked);
     void on_bothHandsRadio_toggled (bool checked);
     void on_leftHandRadio_toggled (bool checked);
@@ -111,6 +112,10 @@ private slots:
 
 private:
     void autoSetMuteYourPart();
+    QStringList songFilterTokens() const;
+    bool songMatchesFilter(const QString &songName, const QStringList &tokens) const;
+    void populateSongCombo(const QString &currentSong);
+    void updateSongFilterCount(int shown, int total);
 
     QMap<QWidget*,QMap<QString,QString>> listWidgetsRetranslateUi;
     QMap<QAction*,QMap<QString,QString>> listActionsRetranslateUi;
@@ -120,6 +125,7 @@ private:
     GuiTopBar* m_topBar;
     CSettings* m_settings;
     QWidget *m_parent;
+    QStringList m_allSongNames;
 };
 
 #endif //__GUISIDEPANEL_H__
