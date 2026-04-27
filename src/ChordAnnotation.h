@@ -22,7 +22,8 @@ enum ChordAnnotationLowConfidenceMode
 
 enum ChordAnnotationMode
 {
-    ChordAnnotationNaive
+    ChordAnnotationNaive,
+    ChordAnnotationStableMidiProfile
 };
 
 struct ChordAnnotation

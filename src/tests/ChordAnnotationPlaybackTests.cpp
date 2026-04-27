@@ -49,6 +49,34 @@ MidiEventRecord eofRecord(qint64 tick)
     return record;
 }
 
+NoteEvent note(int pitch, qint64 start, qint64 duration)
+{
+    NoteEvent event;
+    event.startTick = start;
+    event.endTick = start + duration;
+    event.pitch = pitch;
+    event.velocity = 96;
+    event.channel = 0;
+    event.track = 0;
+    return event;
+}
+
+bool hasNoteOnAt(const QVector<MidiEventRecord>& events, qint64 tick)
+{
+    for (const MidiEventRecord& event : events)
+        if (event.absoluteTick == tick && event.event.type() == MIDI_NOTE_ON)
+            return true;
+    return false;
+}
+
+bool hasNoteOffAt(const QVector<MidiEventRecord>& events, qint64 tick)
+{
+    for (const MidiEventRecord& event : events)
+        if (event.absoluteTick == tick && event.event.type() == MIDI_NOTE_OFF)
+            return true;
+    return false;
+}
+
 void testChordPitches()
 {
     ChordAnnotation chord = annotation(0, 96, 0, QString());
@@ -93,6 +121,20 @@ void testPlaybackEvents()
     expectInt("last type", events.last().event.type(), MIDI_NOTE_OFF);
 }
 
+void testCompingPlaybackEvents()
+{
+    SongData song;
+    song.chordAnnotations.append(annotation(0, 4 * SongDataDefaultPpqn, 0, QString()));
+    song.notes.append(note(72, SongDataDefaultPpqn + SongDataDefaultPpqn / 2, 12));
+    const QVector<MidiEventRecord> events = buildAnnotatedChordPlaybackEvents(
+                song, 15, AnnotatedChordPlaybackVelocity, AnnotatedChordPlayComping);
+    expectBool("comping starts on downbeat", hasNoteOnAt(events, 0), true);
+    expectBool("comping follows melody syncopation",
+               hasNoteOnAt(events, SongDataDefaultPpqn + SongDataDefaultPpqn / 2), true);
+    expectBool("comping releases short first hit",
+               hasNoteOffAt(events, SongDataDefaultPpqn * 3 / 4), true);
+}
+
 void testMerge()
 {
     SongData song;
@@ -103,6 +145,18 @@ void testMerge()
     expectInt("eof last", events.last().event.type(), MIDI_PB_EOF);
     events = buildPlaybackEventsWithAnnotatedChords(song, false);
     expectInt("disabled count", events.size(), 1);
+}
+
+void testMergeCompingMode()
+{
+    SongData song;
+    song.events.append(eofRecord(4 * SongDataDefaultPpqn));
+    song.chordAnnotations.append(annotation(0, 4 * SongDataDefaultPpqn, 0, QString()));
+    song.notes.append(note(72, SongDataDefaultPpqn + SongDataDefaultPpqn / 2, 12));
+    const QVector<MidiEventRecord> events = buildPlaybackEventsWithAnnotatedChords(
+                song, true, 15, AnnotatedChordPlayComping);
+    expectBool("merged comping note", hasNoteOnAt(events, SongDataDefaultPpqn * 3 / 2), true);
+    expectInt("merged comping eof last", events.last().event.type(), MIDI_PB_EOF);
 }
 
 void testNoSpareChannelLeavesSongUntouched()
@@ -133,7 +187,9 @@ int main()
 {
     testChordPitches();
     testPlaybackEvents();
+    testCompingPlaybackEvents();
     testMerge();
+    testMergeCompingMode();
     testNoSpareChannelLeavesSongUntouched();
     testExcludedChannels();
 

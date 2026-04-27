@@ -1,5 +1,7 @@
 #include "ChordAnnotationBuilder.h"
 
+#include "Chord.h"
+
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -13,6 +15,9 @@ constexpr double EmptyScore = -0.15;
 constexpr double SplitPenalty = 0.08;
 constexpr double SplitGain = 0.04;
 constexpr double MinSegmentWeightRatio = 0.18;
+constexpr int StableBassMaxMidi = 52;
+constexpr double StableDominantRatio = 0.18;
+constexpr int StableDominantChainLength = 5;
 
 struct ChordQuality
 {
@@ -27,8 +32,10 @@ struct BarFeatures
 {
     std::array<double, PitchClasses> weight;
     std::array<double, PitchClasses> onsetWeight;
+    std::array<double, PitchClasses> bassWeight;
     int bassPitchClass = -1;
     double totalWeight = 0.0;
+    double bassTotalWeight = 0.0;
 };
 
 struct ChordCandidate
@@ -54,6 +61,12 @@ struct SegmentPlan
 {
     QVector<ChordSegment> segments;
     double score = -std::numeric_limits<double>::infinity();
+};
+
+struct DecodeData
+{
+    QVector<ChordSegment> segments;
+    QVector<QVector<ChordCandidate>> candidates;
 };
 
 const ChordQuality qualities[] = {
@@ -111,7 +124,17 @@ BarFeatures emptyFeatures()
     BarFeatures features;
     features.weight.fill(0.0);
     features.onsetWeight.fill(0.0);
+    features.bassWeight.fill(0.0);
     return features;
+}
+
+bool bassEvidenceNote(const NoteEvent& note)
+{
+    if (note.hand == PB_PART_left)
+        return true;
+    if (note.hand == PB_PART_right)
+        return note.pitch <= StableBassMaxMidi;
+    return note.pitch <= StableBassMaxMidi;
 }
 
 double noteWeight(const NoteEvent& note, qint64 overlap, bool startsNearDownbeat)
@@ -133,6 +156,12 @@ void addNote(BarFeatures& features, const NoteEvent& note, qint64 start, qint64 
     const double weight = noteWeight(note, overlapEnd - overlapStart, downbeat);
     features.weight[pc] += weight;
     features.totalWeight += weight;
+    if (bassEvidenceNote(note))
+    {
+        const double bassWeight = weight * (note.hand == PB_PART_left ? 1.25 : 1.0);
+        features.bassWeight[pc] += bassWeight;
+        features.bassTotalWeight += bassWeight;
+    }
     if (downbeat)
         features.onsetWeight[pc] += weight;
     if (downbeat && (lowestDownbeat < 0 || note.pitch < lowestDownbeat))
@@ -224,6 +253,33 @@ double scoreQuality(const BarFeatures& features, int root, const ChordQuality& q
     return score / std::max(1.0, features.totalWeight);
 }
 
+double scoreStableQuality(const BarFeatures& features, int root, const ChordQuality& quality)
+{
+    double score = scoreQuality(features, root, quality);
+    if (features.bassTotalWeight <= 0.0)
+        return score;
+    const double rootBass = features.bassWeight[root] / features.bassTotalWeight;
+    score += rootBass * 0.42;
+    if (features.bassPitchClass < 0)
+        return score;
+    const int bassInterval = normalizedPitchClass(features.bassPitchClass - root);
+    if (bassInterval == 0)
+        score += 0.16;
+    else if (containsTone(quality, bassInterval))
+        score += 0.04;
+    else
+        score -= 0.12;
+    return score;
+}
+
+double candidateScore(const BarFeatures& features, int root, const ChordQuality& quality,
+                      ChordAnnotationMode mode)
+{
+    if (mode == ChordAnnotationStableMidiProfile)
+        return scoreStableQuality(features, root, quality);
+    return scoreQuality(features, root, quality);
+}
+
 bool strongTone(const BarFeatures& features, int root, int interval)
 {
     const int pc = normalizedPitchClass(root + interval);
@@ -274,13 +330,13 @@ QString labelSuffix(const BarFeatures& features, int root, const ChordQuality& q
 }
 
 ChordCandidate makeCandidate(const BarFeatures& features, int root,
-                             const ChordQuality& quality, ChordAnnotationDetail detail)
+                             const ChordQuality& quality, const ChordAnnotationOptions& options)
 {
     ChordCandidate candidate;
     candidate.root = root;
     candidate.bass = features.bassPitchClass;
-    candidate.suffix = labelSuffix(features, root, quality, detail);
-    candidate.score = scoreQuality(features, root, quality);
+    candidate.suffix = labelSuffix(features, root, quality, options.detail);
+    candidate.score = candidateScore(features, root, quality, options.mode);
     return candidate;
 }
 
@@ -295,7 +351,7 @@ QVector<ChordCandidate> candidatesForBar(const BarFeatures& features,
     }
     for (int root = 0; root < PitchClasses; root++)
         for (const ChordQuality& quality : qualities)
-            result.append(makeCandidate(features, root, quality, options.detail));
+            result.append(makeCandidate(features, root, quality, options));
     std::sort(result.begin(), result.end(), [](const ChordCandidate& a, const ChordCandidate& b) {
         return a.score > b.score;
     });
@@ -467,19 +523,23 @@ QVector<ChordSegment> segmentsForBar(const SongData& song, const BarMap& bars,
     return plan.segments.isEmpty() ? whole : plan.segments;
 }
 
-double transitionScore(const ChordCandidate& from, const ChordCandidate& to)
+double transitionScore(const ChordCandidate& from, const ChordCandidate& to,
+                       ChordAnnotationMode mode)
 {
     if (from.root < 0 || to.root < 0)
-        return -0.03;
+        return mode == ChordAnnotationStableMidiProfile ? -0.08 : -0.03;
+    const bool stable = mode == ChordAnnotationStableMidiProfile;
     if (from.root == to.root && from.suffix == to.suffix)
-        return 0.16;
+        return stable ? 0.24 : 0.16;
     if (from.root == to.root)
-        return 0.06;
+        return stable ? 0.08 : 0.06;
     const int movement = normalizedPitchClass(to.root - from.root);
-    return (movement == 5 || movement == 7) ? 0.04 : -0.04;
+    if (!stable)
+        return (movement == 5 || movement == 7) ? 0.04 : -0.04;
+    return movement == 5 ? -0.02 : -0.14;
 }
 
-QVector<int> bestPath(const QVector<QVector<ChordCandidate>>& bars)
+QVector<int> bestPath(const QVector<QVector<ChordCandidate>>& bars, ChordAnnotationMode mode)
 {
     QVector<QVector<double>> dp(bars.size());
     QVector<QVector<int>> parent(bars.size());
@@ -490,7 +550,8 @@ QVector<int> bestPath(const QVector<QVector<ChordCandidate>>& bars)
         for (int j = 0; j < bars[i].size(); j++)
             for (int k = 0; k < (i == 0 ? 1 : bars[i - 1].size()); k++)
             {
-                const double previous = i == 0 ? 0.0 : dp[i - 1][k] + transitionScore(bars[i - 1][k], bars[i][j]);
+                const double previous = i == 0 ? 0.0 :
+                            dp[i - 1][k] + transitionScore(bars[i - 1][k], bars[i][j], mode);
                 if (previous + bars[i][j].score > dp[i][j])
                 {
                     dp[i][j] = previous + bars[i][j].score;
@@ -568,16 +629,117 @@ void mergeAdjacentSameHarmony(QVector<ChordAnnotation>& annotations)
     }
 }
 
-QVector<ChordAnnotation> buildNaiveChordAnnotations(const SongData& song, const BarMap& bars,
-                                                    ChordAnnotationOptions options)
+bool sameAnnotationHarmony(const ChordAnnotation& a, const ChordAnnotation& b)
 {
-    QVector<ChordAnnotation> annotations;
-    if (bars.barStarts.isEmpty())
-        return annotations;
-    const int keySignature = firstKeySignature(song, options.keySignature);
+    return a.rootPitchClass >= 0 && a.rootPitchClass == b.rootPitchClass &&
+            a.bassPitchClass == b.bassPitchClass && a.suffix == b.suffix;
+}
+
+void copyAnnotationHarmony(ChordAnnotation& target, const ChordAnnotation& source, int keySignature)
+{
+    target.rootPitchClass = source.rootPitchClass;
+    target.bassPitchClass = source.bassPitchClass;
+    target.suffix = source.suffix;
+    target.confidence = std::max(target.confidence, source.confidence * 0.80f);
+    target.label = formatChordSymbol(target.rootPitchClass, target.suffix,
+                                     target.bassPitchClass, keySignature);
+}
+
+qint64 stableBlipLimit(const BarMap& bars, int bar)
+{
+    if (bar < 0 || bar >= bars.beatLengths.size() || bars.beatLengths[bar] <= 0)
+        return SongDataDefaultPpqn;
+    return bars.beatLengths[bar];
+}
+
+void mergeStableBlips(QVector<ChordAnnotation>& annotations, const BarMap& bars, int keySignature)
+{
+    for (int i = 1; i + 1 < annotations.size(); i++)
+    {
+        const qint64 duration = annotations[i].endTick - annotations[i].startTick;
+        if (duration > stableBlipLimit(bars, annotations[i].barIndex))
+            continue;
+        if (!sameAnnotationHarmony(annotations[i - 1], annotations[i + 1]) ||
+                sameAnnotationHarmony(annotations[i], annotations[i - 1]))
+            continue;
+        copyAnnotationHarmony(annotations[i], annotations[i - 1], keySignature);
+    }
+}
+
+double profileValue(const BarFeatures& features, int root, int interval)
+{
+    const int pc = normalizedPitchClass(root + interval);
+    return features.weight[pc] + features.bassWeight[pc] * 0.25;
+}
+
+double dominantSupportRatio(const BarFeatures& features, int root)
+{
+    const double triad = (profileValue(features, root, 0) +
+            profileValue(features, root, 4) + profileValue(features, root, 7)) / 3.0;
+    return profileValue(features, root, 10) / std::max(1.0e-6, triad);
+}
+
+bool cycleCandidate(const ChordAnnotation& annotation)
+{
+    return annotation.rootPitchClass >= 0 &&
+            (annotation.suffix.isEmpty() || annotation.suffix == QStringLiteral("7"));
+}
+
+bool cycleLink(const ChordAnnotation& left, const ChordAnnotation& right)
+{
+    return cycleCandidate(left) && cycleCandidate(right) &&
+            normalizedPitchClass(right.rootPitchClass - left.rootPitchClass) == 5;
+}
+
+int dominantChainSpan(int index, const QVector<ChordAnnotation>& annotations)
+{
+    int left = index;
+    while (left > 0 && cycleLink(annotations[left - 1], annotations[left]))
+        left--;
+    int right = index;
+    while (right + 1 < annotations.size() && cycleLink(annotations[right], annotations[right + 1]))
+        right++;
+    return right - left + 1;
+}
+
+bool shouldPromoteDominant(int index, const QVector<ChordAnnotation>& annotations,
+                           const QVector<ChordSegment>& segments)
+{
+    if (index + 1 >= annotations.size() || index >= segments.size())
+        return false;
+    if (annotations[index].rootPitchClass < 0 || !annotations[index].suffix.isEmpty())
+        return false;
+    if (!cycleLink(annotations[index], annotations[index + 1]))
+        return false;
+    if (dominantSupportRatio(segments[index].features, annotations[index].rootPitchClass) >=
+            StableDominantRatio)
+        return true;
+    return dominantChainSpan(index, annotations) >= StableDominantChainLength;
+}
+
+void refineDominantChains(QVector<ChordAnnotation>& annotations,
+                          const QVector<ChordSegment>& segments,
+                          int keySignature, ChordAnnotationDetail detail)
+{
+    if (detail == ChordAnnotationBasic)
+        return;
+    for (int i = 0; i < annotations.size(); i++)
+    {
+        if (!shouldPromoteDominant(i, annotations, segments))
+            continue;
+        annotations[i].suffix = QStringLiteral("7");
+        annotations[i].label = formatChordSymbol(annotations[i].rootPitchClass,
+                                                 annotations[i].suffix,
+                                                 annotations[i].bassPitchClass, keySignature);
+        annotations[i].confidence = std::max(annotations[i].confidence, 0.35f);
+    }
+}
+
+DecodeData collectDecodeData(const SongData& song, const BarMap& bars,
+                             const ChordAnnotationOptions& options)
+{
+    DecodeData data;
     const QVector<BarFeatures> features = extractFeatures(song, bars, options);
-    QVector<ChordSegment> segments;
-    QVector<QVector<ChordCandidate>> candidates;
     for (int bar = 0; bar < bars.barStarts.size(); bar++)
     {
         if (barEndTick(bars, bar) <= bars.barStarts[bar])
@@ -585,18 +747,44 @@ QVector<ChordAnnotation> buildNaiveChordAnnotations(const SongData& song, const 
         const QVector<ChordSegment> barSegments = segmentsForBar(song, bars, options, bar, features[bar]);
         for (const ChordSegment& segment : barSegments)
         {
-            segments.append(segment);
-            candidates.append(segment.candidates);
+            data.segments.append(segment);
+            data.candidates.append(segment.candidates);
         }
     }
-    if (candidates.isEmpty())
-        return annotations;
-    const QVector<int> path = options.useSmoothing ? bestPath(candidates) : QVector<int>();
-    for (int i = 0; i < candidates.size(); i++)
+    return data;
+}
+
+QVector<ChordAnnotation> decodeAnnotations(const DecodeData& data,
+                                           const ChordAnnotationOptions& options,
+                                           int keySignature)
+{
+    QVector<ChordAnnotation> annotations;
+    const QVector<int> path = options.useSmoothing ? bestPath(data.candidates, options.mode) : QVector<int>();
+    for (int i = 0; i < data.candidates.size(); i++)
     {
         const int index = options.useSmoothing ? path[i] : 0;
-        annotations.append(annotationFor(candidates[i][index], segments[i].barIndex,
-                                         segments[i].startTick, segments[i].endTick, keySignature));
+        annotations.append(annotationFor(data.candidates[i][index], data.segments[i].barIndex,
+                                         data.segments[i].startTick,
+                                         data.segments[i].endTick, keySignature));
+    }
+    return annotations;
+}
+
+QVector<ChordAnnotation> buildProfileChordAnnotations(const SongData& song, const BarMap& bars,
+                                                      ChordAnnotationOptions options)
+{
+    QVector<ChordAnnotation> annotations;
+    if (bars.barStarts.isEmpty())
+        return annotations;
+    const int keySignature = firstKeySignature(song, options.keySignature);
+    const DecodeData data = collectDecodeData(song, bars, options);
+    if (data.candidates.isEmpty())
+        return annotations;
+    annotations = decodeAnnotations(data, options, keySignature);
+    if (options.mode == ChordAnnotationStableMidiProfile)
+    {
+        mergeStableBlips(annotations, bars, keySignature);
+        refineDominantChains(annotations, data.segments, keySignature, options.detail);
     }
     applyCarryPolicy(annotations, options.carryEmptyBars);
     mergeAdjacentSameHarmony(annotations);
@@ -610,7 +798,8 @@ QVector<ChordAnnotation> buildChordAnnotations(const SongData& song, const BarMa
     switch (options.mode)
     {
     case ChordAnnotationNaive:
-        return buildNaiveChordAnnotations(song, bars, options);
+    case ChordAnnotationStableMidiProfile:
+        return buildProfileChordAnnotations(song, bars, options);
     }
-    return buildNaiveChordAnnotations(song, bars, options);
+    return buildProfileChordAnnotations(song, bars, options);
 }

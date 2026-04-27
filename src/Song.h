@@ -34,6 +34,7 @@
 
 #include "Notation.h"
 #include "Conductor.h"
+#include "ChordAnnotationPlayback.h"
 #include "TrackList.h"
 #include "SongData.h"
 #include "BarMap.h"
@@ -153,6 +154,7 @@ private:
     void updateTransportLoop();
     QVector<int> annotatedChordBlockedChannels() const;
     int annotatedChordPlaybackVolume() const;
+    AnnotatedChordPlayMode annotatedChordPlayMode() const;
     void prepareAnnotatedChordPlaybackChannel();
     void playAnnotatedChordAtTick(qint64 tick);
     void stopAnnotatedChordPlayback();

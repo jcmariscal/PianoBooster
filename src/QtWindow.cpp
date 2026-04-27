@@ -42,6 +42,7 @@ constexpr const char ChordConfigLeadSheet[] = "lead-sheet";
 constexpr const char ChordConfigLeadSheetRepeats[] = "lead-sheet-repeats";
 constexpr const char ChordConfigSetting[] = "Song/AnnotateChordConfiguration";
 constexpr const char ChordModeSetting[] = "Song/AnnotateChordMode";
+constexpr const char AnnotatedChordPlayModeSetting[] = "Song/AnnotatedChordPlayMode";
 constexpr int ChordConfigMaxSegmentsLimit = 4;
 constexpr int ClusterNormalMaxSpanDefault = MIDI_OCTAVE;
 constexpr int ClusterWideMaxSpanDefault = MIDI_OCTAVE + 4;
@@ -82,9 +83,16 @@ QString normalizedChordConfigName(const QString& name)
 
 int normalizedChordMode(int mode)
 {
-    if (mode == ChordAnnotationNaive)
-        return ChordAnnotationNaive;
+    if (mode == ChordAnnotationNaive || mode == ChordAnnotationStableMidiProfile)
+        return mode;
     return ChordAnnotationNaive;
+}
+
+int normalizedAnnotatedChordPlayMode(int mode)
+{
+    if (mode == AnnotatedChordPlayRootChord || mode == AnnotatedChordPlayComping)
+        return mode;
+    return AnnotatedChordPlayRootChord;
 }
 }
 
@@ -554,6 +562,29 @@ void QtWindow::createActions()
     annotatedChordVolumeAction->setDefaultWidget(annotatedChordVolumeWidget);
     m_annotatedChordVolumeAct = annotatedChordVolumeAction;
 
+    m_annotatedChordPlayModeGroup = new QActionGroup(this);
+    m_annotatedChordPlayModeGroup->setExclusive(true);
+    connect(m_annotatedChordPlayModeGroup, SIGNAL(triggered(QAction*)),
+            this, SLOT(on_annotatedChordPlayMode(QAction*)));
+    QAction *rootChordPlayAct = new QAction(tr("&Root + Chord"), this);
+    rootChordPlayAct->setToolTip(tr("Hold the bass root and chord until the next annotation"));
+    rootChordPlayAct->setCheckable(true);
+    rootChordPlayAct->setData(AnnotatedChordPlayRootChord);
+    m_annotatedChordPlayModeGroup->addAction(rootChordPlayAct);
+    QAction *compingPlayAct = new QAction(tr("&Comping"), this);
+    compingPlayAct->setToolTip(tr("Play rhythmic chord hits that follow the melody and pulse"));
+    compingPlayAct->setCheckable(true);
+    compingPlayAct->setData(AnnotatedChordPlayComping);
+    m_annotatedChordPlayModeGroup->addAction(compingPlayAct);
+    const int annotatedChordPlayMode = normalizedAnnotatedChordPlayMode(
+                m_settings->value(AnnotatedChordPlayModeSetting,
+                                  AnnotatedChordPlayRootChord).toInt());
+    rootChordPlayAct->setChecked(annotatedChordPlayMode == AnnotatedChordPlayRootChord);
+    compingPlayAct->setChecked(annotatedChordPlayMode == AnnotatedChordPlayComping);
+    if (!m_settings->contains(AnnotatedChordPlayModeSetting) ||
+            m_settings->value(AnnotatedChordPlayModeSetting).toInt() != annotatedChordPlayMode)
+        m_settings->setValue(AnnotatedChordPlayModeSetting, annotatedChordPlayMode);
+
     m_annotateChordsModeGroup = new QActionGroup(this);
     m_annotateChordsModeGroup->setExclusive(true);
     connect(m_annotateChordsModeGroup, SIGNAL(triggered(QAction*)),
@@ -563,9 +594,15 @@ void QtWindow::createActions()
     naiveChordModeAct->setCheckable(true);
     naiveChordModeAct->setData(ChordAnnotationNaive);
     m_annotateChordsModeGroup->addAction(naiveChordModeAct);
+    QAction *stableChordModeAct = new QAction(tr("&Stable MIDI Profile"), this);
+    stableChordModeAct->setToolTip(tr("Use bass and harmony profiles with stable temporal decoding"));
+    stableChordModeAct->setCheckable(true);
+    stableChordModeAct->setData(ChordAnnotationStableMidiProfile);
+    m_annotateChordsModeGroup->addAction(stableChordModeAct);
     const int chordMode = normalizedChordMode(
                 m_settings->value(ChordModeSetting, ChordAnnotationNaive).toInt());
     naiveChordModeAct->setChecked(chordMode == ChordAnnotationNaive);
+    stableChordModeAct->setChecked(chordMode == ChordAnnotationStableMidiProfile);
     if (!m_settings->contains(ChordModeSetting) ||
             m_settings->value(ChordModeSetting).toInt() != chordMode)
         m_settings->setValue(ChordModeSetting, chordMode);
@@ -757,6 +794,9 @@ void QtWindow::createMenus()
     m_songMenu->addAction(m_annotateChordsAct);
     m_songMenu->addAction(m_playAnnotatedChordsAct);
     m_songMenu->addAction(m_annotatedChordVolumeAct);
+    m_annotatedChordPlayModeMenu = m_songMenu->addMenu(tr("Annotated Chord Play &Modes"));
+    for (QAction *action : m_annotatedChordPlayModeGroup->actions())
+        m_annotatedChordPlayModeMenu->addAction(action);
     m_annotateChordsModeMenu = m_songMenu->addMenu(tr("Annotate Chord &Modes"));
     for (QAction *action : m_annotateChordsModeGroup->actions())
         m_annotateChordsModeMenu->addAction(action);
@@ -976,6 +1016,15 @@ void QtWindow::on_annotatedChordVolume(int value)
 {
     m_settings->setValue("Song/AnnotatedChordVolume", qBound(0, value, 127));
     m_controller->updateAnnotatedChordPlaybackVolume();
+}
+
+void QtWindow::on_annotatedChordPlayMode(QAction *action)
+{
+    if (action == nullptr)
+        return;
+    m_settings->setValue(AnnotatedChordPlayModeSetting,
+                         normalizedAnnotatedChordPlayMode(action->data().toInt()));
+    m_controller->rebuildPlaybackEvents();
 }
 
 void QtWindow::on_annotateChordsMode(QAction *action)

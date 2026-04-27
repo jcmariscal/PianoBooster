@@ -180,6 +180,7 @@ private slots:
     void on_annotateChords(bool checked);
     void on_playAnnotatedChords(bool checked);
     void on_annotatedChordVolume(int value);
+    void on_annotatedChordPlayMode(QAction *action);
     void on_annotateChordsMode(QAction *action);
     void on_annotateChordsConfig(QAction *action);
     void on_annotateChordsMaxSegments();
@@ -260,6 +261,7 @@ private:
     QAction *m_playAnnotatedChordsAct;
     QAction *m_annotatedChordVolumeAct;
     QSlider *m_annotatedChordVolumeSlider;
+    QActionGroup *m_annotatedChordPlayModeGroup;
     QAction *m_annotateChordsMaxSegmentsAct;
     QActionGroup *m_annotateChordsModeGroup;
     QActionGroup *m_annotateChordsConfigGroup;
@@ -278,6 +280,7 @@ private:
     QMenu *m_themeMenu;
     QMenu *m_songMenu;
     QMenu *m_splitHandsConfigMenu;
+    QMenu *m_annotatedChordPlayModeMenu;
     QMenu *m_annotateChordsModeMenu;
     QMenu *m_annotateChordsConfigMenu;
     QMenu *m_setupMenu;

@@ -156,9 +156,16 @@ ChordAnnotationLowConfidenceMode validLowConfidenceMode(int value)
 
 ChordAnnotationMode validChordAnnotationMode(int value)
 {
-    if (value == ChordAnnotationNaive)
-        return ChordAnnotationNaive;
+    if (value == ChordAnnotationNaive || value == ChordAnnotationStableMidiProfile)
+        return static_cast<ChordAnnotationMode>(value);
     return ChordAnnotationNaive;
+}
+
+AnnotatedChordPlayMode validAnnotatedChordPlayMode(int value)
+{
+    if (value == AnnotatedChordPlayRootChord || value == AnnotatedChordPlayComping)
+        return static_cast<AnnotatedChordPlayMode>(value);
+    return AnnotatedChordPlayRootChord;
 }
 
 float validConfidence(double value)
@@ -418,7 +425,7 @@ void CSong::rebuildPlaybackEvents()
                 annotatedChordPlaybackChannel(m_songData, annotatedChordBlockedChannels()) : -1;
     m_conductor.setAnnotatedChordPlaybackChannel(m_annotatedChordPlaybackChannel);
     m_playbackEvents = buildPlaybackEventsWithAnnotatedChords(
-                m_songData, enabled, m_annotatedChordPlaybackChannel);
+                m_songData, enabled, m_annotatedChordPlaybackChannel, annotatedChordPlayMode());
     m_conductor.setPlaybackEvents(&m_playbackEvents);
     m_conductor.setPlaybackReadPosition(tick);
     if (enabled)
@@ -565,9 +572,20 @@ int CSong::annotatedChordPlaybackVolume() const
                                        AnnotatedChordPlaybackVolume).toInt(), 127);
 }
 
+AnnotatedChordPlayMode CSong::annotatedChordPlayMode() const
+{
+    if (m_settings == nullptr)
+        return AnnotatedChordPlayRootChord;
+    return validAnnotatedChordPlayMode(
+                m_settings->value("Song/AnnotatedChordPlayMode",
+                                  AnnotatedChordPlayRootChord).toInt());
+}
+
 void CSong::playAnnotatedChordAtTick(qint64 tick)
 {
     if (!m_annotatedChordPlaybackEnabled || m_annotatedChordPlaybackChannel < 0)
+        return;
+    if (annotatedChordPlayMode() != AnnotatedChordPlayRootChord)
         return;
     for (const ChordAnnotation& annotation : m_songData.chordAnnotations)
     {

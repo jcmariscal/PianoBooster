@@ -75,6 +75,13 @@ SongData oneBarSong(std::initializer_list<int> pitches)
     return song;
 }
 
+void appendBarChord(SongData& song, int bar, std::initializer_list<int> pitches)
+{
+    const qint64 start = bar * 4 * SongDataDefaultPpqn;
+    for (int pitch : pitches)
+        song.notes.append(note(pitch, start, 4 * SongDataDefaultPpqn));
+}
+
 void testFormatting()
 {
     expectString("flat root", chordPitchClassName(1, -5), QStringLiteral("Db"));
@@ -265,6 +272,48 @@ void testMaxSegmentsPerBar()
     expectString("max segment second", annotations[1].label, QStringLiteral("F"));
     expectString("max segment third", annotations[2].label, QStringLiteral("G"));
 }
+
+void testStableModeDominantChain()
+{
+    SongData song;
+    song.durationTicks = 20 * SongDataDefaultPpqn;
+    appendBarChord(song, 0, {52, 56, 59});
+    appendBarChord(song, 1, {45, 49, 52});
+    appendBarChord(song, 2, {50, 54, 57});
+    appendBarChord(song, 3, {43, 47, 50});
+    appendBarChord(song, 4, {48, 52, 55});
+    ChordAnnotationOptions options;
+    options.keySignature = 0;
+    options.mode = ChordAnnotationStableMidiProfile;
+    const QVector<ChordAnnotation> annotations = buildChordAnnotations(song, fourFourBars(5), options);
+    expectInt("stable dominant count", annotations.size(), 5);
+    expectString("stable dominant E", annotations[0].label, QStringLiteral("E7"));
+    expectString("stable dominant A", annotations[1].label, QStringLiteral("A7"));
+    expectString("stable dominant D", annotations[2].label, QStringLiteral("D7"));
+    expectString("stable dominant G", annotations[3].label, QStringLiteral("G7"));
+    expectString("stable dominant C", annotations[4].label, QStringLiteral("C"));
+}
+
+void testStableModeMergesShortReturnBlip()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    for (int pitch : {48, 52, 55})
+        song.notes.append(note(pitch, 0, SongDataDefaultPpqn));
+    for (int pitch : {50, 54, 57})
+        song.notes.append(note(pitch, SongDataDefaultPpqn, SongDataDefaultPpqn));
+    for (int pitch : {48, 52, 55})
+        song.notes.append(note(pitch, 2 * SongDataDefaultPpqn, 2 * SongDataDefaultPpqn));
+    ChordAnnotationOptions options;
+    options.keySignature = 0;
+    options.mode = ChordAnnotationStableMidiProfile;
+    options.useSmoothing = false;
+    options.intraBarSegmentation = true;
+    options.maxSegmentsPerBar = 3;
+    const QVector<ChordAnnotation> annotations = buildChordAnnotations(song, fourFourBars(1), options);
+    expectInt("stable blip count", annotations.size(), 1);
+    expectString("stable blip label", annotations[0].label, QStringLiteral("C"));
+}
 }
 
 int main()
@@ -284,6 +333,8 @@ int main()
     testIntraBarSegmentation();
     testPassingToneDoesNotSplitBar();
     testMaxSegmentsPerBar();
+    testStableModeDominantChain();
+    testStableModeMergesShortReturnBlip();
 
     if (failures == 0) {
         std::cout << "ChordAnnotationBuilder tests passed\n";
