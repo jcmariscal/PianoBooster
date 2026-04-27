@@ -181,6 +181,9 @@ private slots:
     void on_playAnnotatedChords(bool checked);
     void on_annotatedChordVolume(int value);
     void on_annotatedChordPlayMode(QAction *action);
+    void on_configureProCompingStyles();
+    void on_proCompingSimpleOnly();
+    void on_proCompingAllStyles();
     void on_annotateChordsMode(QAction *action);
     void on_annotateChordsConfig(QAction *action);
     void on_annotateChordsMaxSegments();
@@ -214,6 +217,20 @@ private:
     void createMenus();
     void addViewModeMenu();
     void applySplitHandsClusterSpanSettings(int normalMaxSpan, int repeatedWideMaxSpan);
+    QAction* addProCompingStyleAction(const QString &text,
+                                      const QString &toolTip,
+                                      int styleMask);
+    QAction* proCompingStyleAction(int styleMask) const;
+    void addProCompingStyleCheckboxes(QLayout *layout, QVector<QCheckBox*>& boxes,
+                                      const QVector<int>& styleMasks);
+    void addProCompingStyleGroup(QBoxLayout *layout, const QString& title,
+                                 QVector<QCheckBox*>& boxes,
+                                 const QVector<int>& styleMasks);
+    int checkedProCompingStyleMask(const QVector<QCheckBox*>& boxes) const;
+    void setProCompingStyleCheckboxes(const QVector<QCheckBox*>& boxes, int styleMask) const;
+    int selectedProCompingStyleMask() const;
+    void applyProCompingStyleMask(int styleMask);
+    void selectProCompingStyleActions(int styleMask);
     QAction* addAnnotateChordsConfigAction(const QString &text,
                                            const QString &toolTip,
                                            const QString &configName);
@@ -262,6 +279,10 @@ private:
     QAction *m_annotatedChordVolumeAct;
     QSlider *m_annotatedChordVolumeSlider;
     QActionGroup *m_annotatedChordPlayModeGroup;
+    QActionGroup *m_proCompingStyleGroup;
+    QAction *m_proCompingConfigureStylesAct;
+    QAction *m_proCompingSimpleOnlyAct;
+    QAction *m_proCompingAllStylesAct;
     QAction *m_annotateChordsMaxSegmentsAct;
     QActionGroup *m_annotateChordsModeGroup;
     QActionGroup *m_annotateChordsConfigGroup;
@@ -281,6 +302,7 @@ private:
     QMenu *m_songMenu;
     QMenu *m_splitHandsConfigMenu;
     QMenu *m_annotatedChordPlayModeMenu;
+    QMenu *m_proCompingStyleMenu;
     QMenu *m_annotateChordsModeMenu;
     QMenu *m_annotateChordsConfigMenu;
     QMenu *m_setupMenu;

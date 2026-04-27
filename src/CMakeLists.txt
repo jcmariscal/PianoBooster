@@ -319,7 +319,7 @@ if(BUILD_TESTING)
     add_test(NAME pianobooster_chord_annotation_builder_tests COMMAND pianobooster_chord_annotation_builder_tests)
 
     add_executable(pianobooster_chord_annotation_playback_tests
-        tests/ChordAnnotationPlaybackTests.cpp ChordAnnotationPlayback.cpp)
+        tests/ChordAnnotationPlaybackTests.cpp ChordAnnotationPlayback.cpp BarMap.cpp)
     target_link_libraries(pianobooster_chord_annotation_playback_tests ${QT_PACKAGE_NAME}::Core ${QT_PACKAGE_NAME}::Widgets)
     add_test(NAME pianobooster_chord_annotation_playback_tests COMMAND pianobooster_chord_annotation_playback_tests)
 

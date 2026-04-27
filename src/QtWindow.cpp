@@ -43,6 +43,7 @@ constexpr const char ChordConfigLeadSheetRepeats[] = "lead-sheet-repeats";
 constexpr const char ChordConfigSetting[] = "Song/AnnotateChordConfiguration";
 constexpr const char ChordModeSetting[] = "Song/AnnotateChordMode";
 constexpr const char AnnotatedChordPlayModeSetting[] = "Song/AnnotatedChordPlayMode";
+constexpr const char ProCompingStylesSetting[] = "Song/AnnotatedChordProCompingStyles";
 constexpr int ChordConfigMaxSegmentsLimit = 4;
 constexpr int ClusterNormalMaxSpanDefault = MIDI_OCTAVE;
 constexpr int ClusterWideMaxSpanDefault = MIDI_OCTAVE + 4;
@@ -94,6 +95,29 @@ int normalizedAnnotatedChordPlayMode(int mode)
             mode == AnnotatedChordPlayProComping)
         return mode;
     return AnnotatedChordPlayRootChord;
+}
+
+int normalizedProCompingStyleMask(int mask)
+{
+    mask &= AnnotatedChordProStyleAll;
+    return mask == 0 ? AnnotatedChordProStyleSimple : mask;
+}
+
+QString actionLabel(const QAction *action)
+{
+    QString label;
+    const QString text = action->text();
+    for (int i = 0; i < text.size(); i++)
+    {
+        if (text.at(i) != QLatin1Char('&'))
+        {
+            label.append(text.at(i));
+            continue;
+        }
+        if (i + 1 < text.size() && text.at(i + 1) == QLatin1Char('&'))
+            label.append(text.at(++i));
+    }
+    return label;
 }
 }
 
@@ -592,6 +616,63 @@ void QtWindow::createActions()
             m_settings->value(AnnotatedChordPlayModeSetting).toInt() != annotatedChordPlayMode)
         m_settings->setValue(AnnotatedChordPlayModeSetting, annotatedChordPlayMode);
 
+    m_proCompingConfigureStylesAct = new QAction(tr("&Configure Pro Comping Styles..."), this);
+    m_proCompingConfigureStylesAct->setToolTip(tr("Choose which styles Pro Comping may use"));
+    connect(m_proCompingConfigureStylesAct, SIGNAL(triggered()),
+            this, SLOT(on_configureProCompingStyles()));
+    m_proCompingSimpleOnlyAct = new QAction(tr("Simple &Only"), this);
+    m_proCompingSimpleOnlyAct->setToolTip(tr("Use only the default automatic pro-comping style"));
+    connect(m_proCompingSimpleOnlyAct, SIGNAL(triggered()),
+            this, SLOT(on_proCompingSimpleOnly()));
+    m_proCompingAllStylesAct = new QAction(tr("Enable &All Styles"), this);
+    m_proCompingAllStylesAct->setToolTip(tr("Allow pro comping to choose between every style"));
+    connect(m_proCompingAllStylesAct, SIGNAL(triggered()),
+            this, SLOT(on_proCompingAllStyles()));
+
+    m_proCompingStyleGroup = new QActionGroup(this);
+    m_proCompingStyleGroup->setExclusive(false);
+    addProCompingStyleAction(tr("&Simple"),
+                             tr("Use the default automatic pro-comping behavior"),
+                             AnnotatedChordProStyleSimple);
+    addProCompingStyleAction(tr("&Blues / Boogie"),
+                             tr("Rolling bass with swung chord riffs"),
+                             AnnotatedChordProStyleBlues);
+    addProCompingStyleAction(tr("S&tride"), tr("Low bass and mid-range chord stride"),
+                             AnnotatedChordProStyleStride);
+    addProCompingStyleAction(tr("&Gospel"), tr("Rich syncopated chords and bass support"),
+                             AnnotatedChordProStyleGospel);
+    addProCompingStyleAction(tr("&Funk"), tr("Sparse sixteenth-note chord stabs"),
+                             AnnotatedChordProStyleFunk);
+    addProCompingStyleAction(tr("Soul / R&&B"), tr("Smooth offbeat groove comping"),
+                             AnnotatedChordProStyleSoul);
+    addProCompingStyleAction(tr("&Classical"), tr("Broken chord accompaniment textures"),
+                             AnnotatedChordProStyleClassical);
+    addProCompingStyleAction(tr("&Waltz"), tr("Bass on beat one, chords on two and three"),
+                             AnnotatedChordProStyleWaltz);
+    addProCompingStyleAction(tr("&March"), tr("Strict bass-chord pulse"),
+                             AnnotatedChordProStyleMarch);
+    addProCompingStyleAction(tr("B&allad"), tr("Sparse bass and gentle sustained voicings"),
+                             AnnotatedChordProStyleBallad);
+    addProCompingStyleAction(tr("&Latin / Montuno"), tr("Syncopated latin bass and chord pattern"),
+                             AnnotatedChordProStyleLatin);
+    addProCompingStyleAction(tr("&Reggae / Ska"), tr("Short offbeat chord stabs"),
+                             AnnotatedChordProStyleReggae);
+    addProCompingStyleAction(tr("C&ountry / Folk"), tr("Simple alternating bass and chords"),
+                             AnnotatedChordProStyleCountry);
+    addProCompingStyleAction(tr("&New Age / Ambient"), tr("Soft repeated broken-chord texture"),
+                             AnnotatedChordProStyleNewAge);
+    addProCompingStyleAction(tr("Rock &Ballad"), tr("Root support and steady chord pulses"),
+                             AnnotatedChordProStyleRockBallad);
+    addProCompingStyleAction(tr("Contemporary &Jazz"), tr("Sparse modern shell voicings"),
+                             AnnotatedChordProStyleContemporaryJazz);
+    const int proStyleMask = normalizedProCompingStyleMask(
+                m_settings->value(ProCompingStylesSetting,
+                                  AnnotatedChordProStyleSimple).toInt());
+    selectProCompingStyleActions(proStyleMask);
+    if (!m_settings->contains(ProCompingStylesSetting) ||
+            m_settings->value(ProCompingStylesSetting).toInt() != proStyleMask)
+        m_settings->setValue(ProCompingStylesSetting, proStyleMask);
+
     m_annotateChordsModeGroup = new QActionGroup(this);
     m_annotateChordsModeGroup->setExclusive(true);
     connect(m_annotateChordsModeGroup, SIGNAL(triggered(QAction*)),
@@ -804,6 +885,12 @@ void QtWindow::createMenus()
     m_annotatedChordPlayModeMenu = m_songMenu->addMenu(tr("Annotated Chord Play &Modes"));
     for (QAction *action : m_annotatedChordPlayModeGroup->actions())
         m_annotatedChordPlayModeMenu->addAction(action);
+    m_annotatedChordPlayModeMenu->addSeparator();
+    m_proCompingStyleMenu = m_annotatedChordPlayModeMenu->addMenu(tr("Pro Comping &Styles"));
+    m_proCompingStyleMenu->addAction(m_proCompingConfigureStylesAct);
+    m_proCompingStyleMenu->addSeparator();
+    m_proCompingStyleMenu->addAction(m_proCompingSimpleOnlyAct);
+    m_proCompingStyleMenu->addAction(m_proCompingAllStylesAct);
     m_annotateChordsModeMenu = m_songMenu->addMenu(tr("Annotate Chord &Modes"));
     for (QAction *action : m_annotateChordsModeGroup->actions())
         m_annotateChordsModeMenu->addAction(action);
@@ -853,6 +940,93 @@ void QtWindow::applySplitHandsClusterSpanSettings(int normalMaxSpan, int repeate
         return;
     m_settings->setValue("Song/SplitHandsClusterNormalMaxSpan", CNote::clusterNormalMaxHandSpan());
     m_settings->setValue("Song/SplitHandsClusterWideMaxSpan", CNote::clusterRepeatedWideMaxHandSpan());
+}
+
+QAction* QtWindow::addProCompingStyleAction(const QString &text,
+                                            const QString &toolTip,
+                                            int styleMask)
+{
+    QAction *action = new QAction(text, this);
+    action->setToolTip(toolTip);
+    action->setCheckable(true);
+    action->setData(styleMask);
+    m_proCompingStyleGroup->addAction(action);
+    return action;
+}
+
+QAction* QtWindow::proCompingStyleAction(int styleMask) const
+{
+    for (QAction *action : m_proCompingStyleGroup->actions())
+        if (action->data().toInt() == styleMask)
+            return action;
+    return nullptr;
+}
+
+void QtWindow::addProCompingStyleCheckboxes(QLayout *layout, QVector<QCheckBox*>& boxes,
+                                            const QVector<int>& styleMasks)
+{
+    for (int styleMask : styleMasks)
+    {
+        QAction *action = proCompingStyleAction(styleMask);
+        if (action != nullptr)
+        {
+            QCheckBox *box = new QCheckBox(actionLabel(action));
+            box->setToolTip(action->toolTip());
+            box->setProperty("styleMask", styleMask);
+            layout->addWidget(box);
+            boxes.append(box);
+        }
+    }
+}
+
+void QtWindow::addProCompingStyleGroup(QBoxLayout *layout, const QString& title,
+                                       QVector<QCheckBox*>& boxes,
+                                       const QVector<int>& styleMasks)
+{
+    QGroupBox *group = new QGroupBox(title);
+    QVBoxLayout *groupLayout = new QVBoxLayout(group);
+    addProCompingStyleCheckboxes(groupLayout, boxes, styleMasks);
+    groupLayout->addStretch();
+    layout->addWidget(group);
+}
+
+int QtWindow::checkedProCompingStyleMask(const QVector<QCheckBox*>& boxes) const
+{
+    int mask = 0;
+    for (QCheckBox *box : boxes)
+        if (box->isChecked())
+            mask |= box->property("styleMask").toInt();
+    return normalizedProCompingStyleMask(mask);
+}
+
+void QtWindow::setProCompingStyleCheckboxes(const QVector<QCheckBox*>& boxes, int styleMask) const
+{
+    for (QCheckBox *box : boxes)
+        box->setChecked((styleMask & box->property("styleMask").toInt()) != 0);
+}
+
+int QtWindow::selectedProCompingStyleMask() const
+{
+    int mask = 0;
+    for (QAction *action : m_proCompingStyleGroup->actions())
+        if (action->isChecked())
+            mask |= action->data().toInt();
+    return normalizedProCompingStyleMask(mask);
+}
+
+void QtWindow::applyProCompingStyleMask(int styleMask)
+{
+    const int mask = normalizedProCompingStyleMask(styleMask);
+    selectProCompingStyleActions(mask);
+    m_settings->setValue(ProCompingStylesSetting, mask);
+    m_controller->rebuildPlaybackEvents();
+}
+
+void QtWindow::selectProCompingStyleActions(int styleMask)
+{
+    const int mask = normalizedProCompingStyleMask(styleMask);
+    for (QAction *action : m_proCompingStyleGroup->actions())
+        action->setChecked((mask & action->data().toInt()) != 0);
 }
 
 QAction* QtWindow::addAnnotateChordsConfigAction(const QString &text,
@@ -1032,6 +1206,65 @@ void QtWindow::on_annotatedChordPlayMode(QAction *action)
     m_settings->setValue(AnnotatedChordPlayModeSetting,
                          normalizedAnnotatedChordPlayMode(action->data().toInt()));
     m_controller->rebuildPlaybackEvents();
+}
+
+void QtWindow::on_configureProCompingStyles()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Pro Comping Styles"));
+    dialog.setMinimumWidth(760);
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    QVector<QCheckBox*> boxes;
+
+    QHBoxLayout *presetLayout = new QHBoxLayout;
+    QPushButton *simpleButton = new QPushButton(tr("Simple Only"), &dialog);
+    QPushButton *allButton = new QPushButton(tr("Select All"), &dialog);
+    QPushButton *clearButton = new QPushButton(tr("Clear Selection"), &dialog);
+    presetLayout->addWidget(simpleButton);
+    presetLayout->addWidget(allButton);
+    presetLayout->addWidget(clearButton);
+    presetLayout->addStretch();
+    layout->addLayout(presetLayout);
+
+    QHBoxLayout *styleLayout = new QHBoxLayout;
+    addProCompingStyleGroup(styleLayout, tr("Core"), boxes, QVector<int>() << AnnotatedChordProStyleSimple);
+    addProCompingStyleGroup(styleLayout, tr("Swing / Blues"), boxes, QVector<int>()
+                            << AnnotatedChordProStyleBlues << AnnotatedChordProStyleStride
+                            << AnnotatedChordProStyleGospel << AnnotatedChordProStyleContemporaryJazz);
+    addProCompingStyleGroup(styleLayout, tr("Groove"), boxes, QVector<int>()
+                            << AnnotatedChordProStyleFunk << AnnotatedChordProStyleSoul
+                            << AnnotatedChordProStyleLatin << AnnotatedChordProStyleReggae
+                            << AnnotatedChordProStyleRockBallad);
+    addProCompingStyleGroup(styleLayout, tr("Traditional / Texture"), boxes, QVector<int>()
+                            << AnnotatedChordProStyleClassical << AnnotatedChordProStyleWaltz
+                            << AnnotatedChordProStyleMarch << AnnotatedChordProStyleCountry
+                            << AnnotatedChordProStyleBallad << AnnotatedChordProStyleNewAge);
+    layout->addLayout(styleLayout);
+
+    QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                                                     &dialog);
+    layout->addWidget(buttons);
+    setProCompingStyleCheckboxes(boxes, selectedProCompingStyleMask());
+    connect(simpleButton, &QPushButton::clicked, &dialog,
+            [&]() { setProCompingStyleCheckboxes(boxes, AnnotatedChordProStyleSimple); });
+    connect(allButton, &QPushButton::clicked, &dialog,
+            [&]() { setProCompingStyleCheckboxes(boxes, AnnotatedChordProStyleAll); });
+    connect(clearButton, &QPushButton::clicked, &dialog,
+            [&]() { setProCompingStyleCheckboxes(boxes, 0); });
+    connect(buttons, SIGNAL(accepted()), &dialog, SLOT(accept()));
+    connect(buttons, SIGNAL(rejected()), &dialog, SLOT(reject()));
+    if (dialog.exec() == QDialog::Accepted)
+        applyProCompingStyleMask(checkedProCompingStyleMask(boxes));
+}
+
+void QtWindow::on_proCompingSimpleOnly()
+{
+    applyProCompingStyleMask(AnnotatedChordProStyleSimple);
+}
+
+void QtWindow::on_proCompingAllStyles()
+{
+    applyProCompingStyleMask(AnnotatedChordProStyleAll);
 }
 
 void QtWindow::on_annotateChordsMode(QAction *action)

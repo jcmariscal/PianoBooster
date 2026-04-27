@@ -155,6 +155,7 @@ private:
     QVector<int> annotatedChordBlockedChannels() const;
     int annotatedChordPlaybackVolume() const;
     AnnotatedChordPlayMode annotatedChordPlayMode() const;
+    int annotatedChordProStyleMask() const;
     void prepareAnnotatedChordPlaybackChannel();
     void playAnnotatedChordAtTick(qint64 tick);
     void stopAnnotatedChordPlayback();

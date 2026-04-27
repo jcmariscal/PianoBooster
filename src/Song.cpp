@@ -169,6 +169,12 @@ AnnotatedChordPlayMode validAnnotatedChordPlayMode(int value)
     return AnnotatedChordPlayRootChord;
 }
 
+int validAnnotatedChordProStyleMask(int value)
+{
+    value &= AnnotatedChordProStyleAll;
+    return value == 0 ? AnnotatedChordProStyleSimple : value;
+}
+
 float validConfidence(double value)
 {
     if (value < 0.0)
@@ -426,7 +432,8 @@ void CSong::rebuildPlaybackEvents()
                 annotatedChordPlaybackChannel(m_songData, annotatedChordBlockedChannels()) : -1;
     m_conductor.setAnnotatedChordPlaybackChannel(m_annotatedChordPlaybackChannel);
     m_playbackEvents = buildPlaybackEventsWithAnnotatedChords(
-                m_songData, enabled, m_annotatedChordPlaybackChannel, annotatedChordPlayMode());
+                m_songData, enabled, m_annotatedChordPlaybackChannel,
+                annotatedChordPlayMode(), annotatedChordProStyleMask());
     m_conductor.setPlaybackEvents(&m_playbackEvents);
     m_conductor.setPlaybackReadPosition(tick);
     if (enabled)
@@ -580,6 +587,15 @@ AnnotatedChordPlayMode CSong::annotatedChordPlayMode() const
     return validAnnotatedChordPlayMode(
                 m_settings->value("Song/AnnotatedChordPlayMode",
                                   AnnotatedChordPlayRootChord).toInt());
+}
+
+int CSong::annotatedChordProStyleMask() const
+{
+    if (m_settings == nullptr)
+        return AnnotatedChordProStyleSimple;
+    return validAnnotatedChordProStyleMask(
+                m_settings->value("Song/AnnotatedChordProCompingStyles",
+                                  AnnotatedChordProStyleSimple).toInt());
 }
 
 void CSong::playAnnotatedChordAtTick(qint64 tick)

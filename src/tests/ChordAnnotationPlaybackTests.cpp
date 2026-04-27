@@ -80,6 +80,15 @@ bool hasNoteOffAt(const QVector<MidiEventRecord>& events, qint64 tick)
     return false;
 }
 
+int noteOnCount(const QVector<MidiEventRecord>& events)
+{
+    int count = 0;
+    for (const MidiEventRecord& event : events)
+        if (event.event.type() == MIDI_NOTE_ON)
+            count++;
+    return count;
+}
+
 void testChordPitches()
 {
     ChordAnnotation chord = annotation(0, 96, 0, QString());
@@ -166,6 +175,46 @@ void testProCompingPopBackbeat()
     expectBool("pro pop backbeat four", hasNoteOnAt(events, 3 * SongDataDefaultPpqn), true);
 }
 
+void testProCompingStyleMask()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    song.chordAnnotations.append(annotation(0, song.durationTicks, 0, QString()));
+    const QVector<MidiEventRecord> events = buildAnnotatedChordPlaybackEvents(
+                song, 15, AnnotatedChordPlaybackVelocity, AnnotatedChordPlayProComping,
+                AnnotatedChordProStyleReggae);
+    expectBool("pro reggae upbeat one", hasNoteOnAt(events, SongDataDefaultPpqn / 2), true);
+    expectBool("pro reggae upbeat two", hasNoteOnAt(events, SongDataDefaultPpqn + SongDataDefaultPpqn / 2), true);
+}
+
+void testProCompingStyleHeldWithinBar()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    song.chordAnnotations.append(annotation(0, 2 * SongDataDefaultPpqn, 0, QString()));
+    song.chordAnnotations.append(annotation(2 * SongDataDefaultPpqn,
+                                            4 * SongDataDefaultPpqn, 0, QString()));
+    const QVector<MidiEventRecord> events = buildAnnotatedChordPlaybackEvents(
+                song, 15, AnnotatedChordPlaybackVelocity, AnnotatedChordPlayProComping,
+                AnnotatedChordProStyleFunk | AnnotatedChordProStyleReggae);
+    expectBool("same bar downbeat style",
+               hasNoteOnAt(events, 0), hasNoteOnAt(events, 2 * SongDataDefaultPpqn));
+    expectBool("same bar upbeat style",
+               hasNoteOnAt(events, SongDataDefaultPpqn / 2),
+               hasNoteOnAt(events, 2 * SongDataDefaultPpqn + SongDataDefaultPpqn / 2));
+}
+
+void testProCompingAllStylesDoesNotStack()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    song.chordAnnotations.append(annotation(0, song.durationTicks, 0, QString()));
+    const QVector<MidiEventRecord> events = buildAnnotatedChordPlaybackEvents(
+                song, 15, AnnotatedChordPlaybackVelocity, AnnotatedChordPlayProComping,
+                AnnotatedChordProStyleAll);
+    expectBool("all styles chooses one pattern", noteOnCount(events) < 60, true);
+}
+
 void testMerge()
 {
     SongData song;
@@ -221,6 +270,9 @@ int main()
     testCompingPlaybackEvents();
     testProCompingRagtimeOomPah();
     testProCompingPopBackbeat();
+    testProCompingStyleMask();
+    testProCompingStyleHeldWithinBar();
+    testProCompingAllStylesDoesNotStack();
     testMerge();
     testMergeCompingMode();
     testNoSpareChannelLeavesSongUntouched();
