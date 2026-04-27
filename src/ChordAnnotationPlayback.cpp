@@ -3,6 +3,7 @@
 #include "Chord.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace {
@@ -12,6 +13,27 @@ constexpr int RightHandRootBase = 55;
 constexpr int CompingRightHandBase = 60;
 constexpr int CompingBassHigh = 48;
 constexpr int MaxCompingHits = 6;
+
+enum ProCompingStyle
+{
+    ProCompingRagtime,
+    ProCompingPopRock,
+    ProCompingJazz,
+    ProCompingBossa,
+    ProCompingBallad
+};
+
+struct GrooveProfile
+{
+    double bpm = 120.0;
+    double melodyDensity = 0.0;
+    double syncopation = 0.0;
+    double backbeatAccent = 1.0;
+    double swing = 0.0;
+    double alternatingBass = 0.0;
+    double chordBeats = 4.0;
+    int beatsPerBar = 4;
+};
 
 int normalizedPc(int pitch)
 {
@@ -151,6 +173,91 @@ QVector<int> compingChordPitches(const ChordAnnotation& annotation, bool strong)
     return pitches;
 }
 
+bool seventhSuffix(const QString& suffix)
+{
+    return suffix.startsWith(QStringLiteral("7")) ||
+            suffix.startsWith(QStringLiteral("maj7")) ||
+            suffix.startsWith(QStringLiteral("m7")) ||
+            suffix.startsWith(QStringLiteral("m7b5")) ||
+            suffix.startsWith(QStringLiteral("dim7"));
+}
+
+QVector<int> proChordIntervals(const QString& suffix, bool shell)
+{
+    if (shell && seventhSuffix(suffix))
+    {
+        if (suffix.startsWith(QStringLiteral("m")) || suffix.startsWith(QStringLiteral("dim")))
+            return suffix.startsWith(QStringLiteral("dim7")) ? QVector<int>{3, 9} : QVector<int>{3, 10};
+        if (suffix.startsWith(QStringLiteral("maj7")))
+            return {4, 11};
+        return {4, 10};
+    }
+    QVector<int> intervals = chordIntervals(suffix);
+    appendExtensionIntervals(intervals, suffix);
+    trimCompingIntervals(intervals);
+    return intervals;
+}
+
+QVector<int> voicingCandidate(int root, const QVector<int>& intervals, int base)
+{
+    QVector<int> candidate;
+    for (int interval : intervals)
+        appendUniquePitch(candidate, pitchForPitchClass(root + interval, base));
+    std::sort(candidate.begin(), candidate.end());
+    while (!candidate.isEmpty() && candidate.first() < 52)
+        for (int& pitch : candidate)
+            pitch += MIDI_OCTAVE;
+    while (!candidate.isEmpty() && candidate.last() > 81)
+        for (int& pitch : candidate)
+            pitch -= MIDI_OCTAVE;
+    return candidate;
+}
+
+double voicingScore(const QVector<int>& candidate, const QVector<int>& previous)
+{
+    if (candidate.isEmpty())
+        return 1.0e9;
+    double score = candidate.last() - candidate.first();
+    const double center = (candidate.first() + candidate.last()) * 0.5;
+    score += std::abs(center - 66.0) * 0.25;
+    if (previous.isEmpty())
+        return score;
+    for (int i = 0; i < candidate.size(); i++)
+        score += std::abs(candidate[i] - previous[std::min(i, previous.size() - 1)]) * 1.5;
+    return score + std::abs(candidate.size() - previous.size()) * 8.0;
+}
+
+QVector<int> proChordVoicing(const ChordAnnotation& annotation,
+                             const QVector<int>& previous, bool shell)
+{
+    const QVector<int> intervals = proChordIntervals(annotation.suffix, shell);
+    QVector<int> best;
+    double bestScore = 1.0e9;
+    for (int base = 54; base <= 66; base += 4)
+    {
+        const QVector<int> candidate = voicingCandidate(annotation.rootPitchClass, intervals, base);
+        const double score = voicingScore(candidate, previous);
+        if (score < bestScore)
+        {
+            best = candidate;
+            bestScore = score;
+        }
+    }
+    return best;
+}
+
+QVector<int> proBassPitches(const ChordAnnotation& annotation, bool fifth)
+{
+    QVector<int> pitches;
+    const int bass = annotation.bassPitchClass >= 0 ?
+                annotation.bassPitchClass : annotation.rootPitchClass;
+    appendUniquePitch(pitches, pitchForPitchClassAtOrBelow(bass, CompingBassHigh));
+    if (fifth)
+        appendUniquePitch(pitches, pitchForPitchClassAtOrBelow(annotation.rootPitchClass + 7,
+                                                              CompingBassHigh + 7));
+    return pitches;
+}
+
 MidiEventRecord chordEvent(qint64 tick, int channel, int pitch, bool on, int velocity)
 {
     MidiEventRecord record;
@@ -207,6 +314,143 @@ QVector<qint64> melodyOnsets(const SongData& song)
             onsets.append(note.startTick);
     std::sort(onsets.begin(), onsets.end());
     return onsets;
+}
+
+QVector<qint64> accentedMelodyOnsets(const SongData& song)
+{
+    double velocity = 0.0;
+    int count = 0;
+    for (const NoteEvent& note : song.notes)
+        if (melodySource(note))
+        {
+            velocity += note.velocity;
+            count++;
+        }
+    if (count == 0)
+        return QVector<qint64>();
+    QVector<qint64> onsets;
+    const double threshold = velocity / count + 6.0;
+    for (const NoteEvent& note : song.notes)
+        if (melodySource(note) && note.velocity >= threshold)
+            onsets.append(note.startTick);
+    std::sort(onsets.begin(), onsets.end());
+    return onsets.isEmpty() ? melodyOnsets(song) : onsets;
+}
+
+double tempoBpm(const SongData& song)
+{
+    for (const TempoChange& tempo : song.tempos)
+        if (tempo.microsecondsPerQuarter > 0)
+            return 60000000.0 / static_cast<double>(tempo.microsecondsPerQuarter);
+    return 120.0;
+}
+
+int beatsPerBarAt(const SongData& song, qint64 tick)
+{
+    int beats = 4;
+    for (const TimeSignatureChange& signature : song.timeSignatures)
+    {
+        if (signature.tick > tick)
+            break;
+        if (signature.numerator > 0)
+            beats = signature.numerator;
+    }
+    return beats;
+}
+
+bool nearTick(qint64 value, qint64 target, qint64 tolerance)
+{
+    return std::abs(value - target) <= tolerance;
+}
+
+double averageChordBeats(const SongData& song, qint64 beat)
+{
+    if (song.chordAnnotations.isEmpty())
+        return 4.0;
+    double total = 0.0;
+    for (const ChordAnnotation& annotation : song.chordAnnotations)
+        total += static_cast<double>(annotation.endTick - annotation.startTick) /
+                static_cast<double>(beat);
+    return total / static_cast<double>(song.chordAnnotations.size());
+}
+
+void addRhythmEvidence(const SongData& song, const NoteEvent& note,
+                       GrooveProfile& profile, double& velocitySum,
+                       double& backbeatVelocity)
+{
+    const qint64 beat = beatLengthAt(song, note.startTick);
+    const qint64 rem = note.startTick % beat;
+    const qint64 tolerance = std::max<qint64>(1, beat / 8);
+    const int beatIndex = static_cast<int>((note.startTick / beat) % profile.beatsPerBar);
+    profile.syncopation += !nearTick(rem, 0, beat / 6) && !nearTick(rem, beat, beat / 6) ? 1.0 : 0.0;
+    profile.swing += nearTick(rem, beat * 2 / 3, tolerance) ? 1.0 : 0.0;
+    if (beatIndex == 1 || beatIndex == 3)
+        backbeatVelocity += note.velocity;
+    velocitySum += note.velocity;
+}
+
+double alternatingBassEvidence(const SongData& song)
+{
+    int strong = 0;
+    int total = 0;
+    for (const NoteEvent& note : song.notes)
+    {
+        if (note.pitch >= MIDDLE_C || note.channel == MIDI_DRUM_CHANNEL)
+            continue;
+        const qint64 beat = beatLengthAt(song, note.startTick);
+        const qint64 rem = note.startTick % beat;
+        if (!nearTick(rem, 0, beat / 6) && !nearTick(rem, beat, beat / 6))
+            continue;
+        total++;
+        const int beatIndex = static_cast<int>((note.startTick / beat) % beatsPerBarAt(song, note.startTick));
+        if (beatIndex == 0 || beatIndex == 2)
+            strong++;
+    }
+    return total == 0 ? 0.0 : static_cast<double>(strong) / static_cast<double>(total);
+}
+
+GrooveProfile analyzeGroove(const SongData& song)
+{
+    GrooveProfile profile;
+    const qint64 beat = beatLengthAt(song, 0);
+    profile.bpm = tempoBpm(song);
+    profile.beatsPerBar = beatsPerBarAt(song, 0);
+    profile.chordBeats = averageChordBeats(song, beat);
+    double velocitySum = 0.0;
+    double backbeatVelocity = 0.0;
+    int melodyCount = 0;
+    for (const NoteEvent& note : song.notes)
+        if (melodySource(note))
+        {
+            addRhythmEvidence(song, note, profile, velocitySum, backbeatVelocity);
+            melodyCount++;
+        }
+    const double beats = std::max(1.0, static_cast<double>(song.durationTicks) / beat);
+    profile.melodyDensity = static_cast<double>(melodyCount) / beats;
+    profile.syncopation = melodyCount == 0 ? 0.0 : profile.syncopation / melodyCount;
+    profile.swing = melodyCount == 0 ? 0.0 : profile.swing / melodyCount;
+    profile.backbeatAccent = velocitySum <= 0.0 ? 1.0 : (backbeatVelocity * 2.0) / velocitySum;
+    profile.alternatingBass = alternatingBassEvidence(song);
+    return profile;
+}
+
+ProCompingStyle chooseProStyle(const GrooveProfile& profile)
+{
+    if (profile.beatsPerBar != 4)
+        return ProCompingBallad;
+    if (profile.alternatingBass > 0.55 && profile.bpm >= 75.0 &&
+            profile.bpm <= 155.0 && profile.swing < 0.35)
+        return ProCompingRagtime;
+    if (profile.swing > 0.25 && profile.syncopation > 0.35)
+        return ProCompingJazz;
+    if (profile.syncopation > 0.45 && profile.backbeatAccent < 1.08 &&
+            profile.bpm >= 80.0 && profile.bpm <= 180.0)
+        return ProCompingBossa;
+    if (profile.backbeatAccent >= 1.08 && profile.swing < 0.35)
+        return ProCompingPopRock;
+    if (profile.bpm < 75.0 || profile.melodyDensity < 0.45 || profile.chordBeats >= 4.0)
+        return ProCompingBallad;
+    return profile.syncopation > 0.40 ? ProCompingJazz : ProCompingPopRock;
 }
 
 qint64 quantizedTick(qint64 tick, qint64 start, qint64 grid)
@@ -275,6 +519,118 @@ void appendChordHit(QVector<MidiEventRecord>& events, qint64 start, qint64 end,
         events.append(chordEvent(end, channel, pitch, false, velocity));
 }
 
+void appendProHit(QVector<MidiEventRecord>& events, const ChordAnnotation& annotation,
+                  QVector<int>& previousVoicing, qint64 tick, qint64 duration,
+                  int channel, int velocity, int flags)
+{
+    if (annotation.label.isEmpty() || annotation.rootPitchClass < 0)
+        return;
+    QVector<int> pitches;
+    if ((flags & 1) != 0)
+        for (int pitch : proBassPitches(annotation, (flags & 4) != 0))
+            appendUniquePitch(pitches, pitch);
+    if ((flags & 2) != 0)
+    {
+        previousVoicing = proChordVoicing(annotation, previousVoicing, (flags & 8) != 0);
+        for (int pitch : previousVoicing)
+            appendUniquePitch(pitches, pitch);
+    }
+    appendChordHit(events, tick, tick + duration, pitches, channel, velocity);
+}
+
+void appendRagtimeComping(QVector<MidiEventRecord>& events, const ChordAnnotation& annotation,
+                          QVector<int>& previousVoicing, int channel, int velocity, qint64 beat)
+{
+    int index = 0;
+    for (qint64 tick = annotation.startTick; tick < annotation.endTick; tick += beat, index++)
+    {
+        const bool bass = (index % 2) == 0;
+        appendProHit(events, annotation, previousVoicing, tick,
+                     bass ? beat / 2 : beat / 3, channel,
+                     bass ? velocity : qMax(1, velocity - 6), bass ? 1 : 2);
+    }
+}
+
+void appendPopComping(QVector<MidiEventRecord>& events, const ChordAnnotation& annotation,
+                      QVector<int>& previousVoicing, const GrooveProfile& profile,
+                      int channel, int velocity, qint64 beat)
+{
+    int index = 0;
+    for (qint64 tick = annotation.startTick; tick < annotation.endTick; tick += beat, index++)
+    {
+        if (index % 4 == 0)
+            appendProHit(events, annotation, previousVoicing, tick, beat / 2,
+                         channel, velocity, 1 | 4);
+        if (index % 4 == 1 || index % 4 == 3)
+            appendProHit(events, annotation, previousVoicing, tick, beat / 2,
+                         channel, velocity, 2);
+        if (profile.melodyDensity > 1.4)
+            appendProHit(events, annotation, previousVoicing, tick + beat / 2, beat / 3,
+                         channel, qMax(1, velocity - 10), 2);
+    }
+}
+
+QVector<qint64> proAccentHits(const QVector<qint64>& onsets, const ChordAnnotation& annotation,
+                              qint64 beat)
+{
+    QVector<qint64> hits;
+    appendCompingHit(hits, annotation.startTick + beat / 2, annotation.startTick, annotation.endTick);
+    appendCompingHit(hits, annotation.startTick + beat + beat / 2, annotation.startTick, annotation.endTick);
+    auto it = std::lower_bound(onsets.begin(), onsets.end(), annotation.startTick);
+    for (; it != onsets.end() && *it < annotation.endTick; ++it)
+        appendCompingHit(hits, quantizedTick(*it, annotation.startTick, beat / 2),
+                         annotation.startTick, annotation.endTick);
+    return normalizedCompingHits(hits, beat / 2);
+}
+
+void appendJazzComping(QVector<MidiEventRecord>& events, const ChordAnnotation& annotation,
+                       const QVector<qint64>& onsets, QVector<int>& previousVoicing,
+                       int channel, int velocity, qint64 beat)
+{
+    const QVector<qint64> hits = proAccentHits(onsets, annotation, beat);
+    for (int i = 0; i < hits.size(); i++)
+        appendProHit(events, annotation, previousVoicing, hits[i], beat / 2,
+                     channel, i == 0 ? velocity : qMax(1, velocity - 8),
+                     (i == 0 ? 1 : 0) | 2 | 8);
+}
+
+void appendBossaOffset(QVector<MidiEventRecord>& events, const ChordAnnotation& annotation,
+                       QVector<int>& previousVoicing, qint64 base, qint64 offset,
+                       qint64 beat, int channel, int velocity, int flags)
+{
+    const qint64 tick = base + offset;
+    if (tick >= annotation.startTick && tick < annotation.endTick)
+        appendProHit(events, annotation, previousVoicing, tick, beat / 2,
+                     channel, velocity, flags);
+}
+
+void appendBossaComping(QVector<MidiEventRecord>& events, const ChordAnnotation& annotation,
+                        QVector<int>& previousVoicing, int channel, int velocity, qint64 beat)
+{
+    const qint64 bar = 4 * beat;
+    for (qint64 base = annotation.startTick; base < annotation.endTick; base += bar)
+    {
+        appendBossaOffset(events, annotation, previousVoicing, base, 0, beat, channel, velocity, 1);
+        appendBossaOffset(events, annotation, previousVoicing, base, beat * 3 / 2, beat, channel, velocity - 6, 1);
+        appendBossaOffset(events, annotation, previousVoicing, base, beat * 2, beat, channel, velocity, 1);
+        for (qint64 off : {beat / 2, beat, beat * 5 / 2, beat * 7 / 2})
+            appendBossaOffset(events, annotation, previousVoicing, base, off, beat,
+                              channel, qMax(1, velocity - 8), 2);
+    }
+}
+
+void appendBalladComping(QVector<MidiEventRecord>& events, const ChordAnnotation& annotation,
+                         QVector<int>& previousVoicing, int channel, int velocity, qint64 beat)
+{
+    appendProHit(events, annotation, previousVoicing, annotation.startTick,
+                 std::min(annotation.endTick - annotation.startTick, beat * 2),
+                 channel, velocity, 1);
+    if (annotation.startTick + beat < annotation.endTick)
+        appendProHit(events, annotation, previousVoicing, annotation.startTick + beat,
+                     std::min(annotation.endTick - annotation.startTick - beat, beat * 2),
+                     channel, qMax(1, velocity - 8), 2);
+}
+
 QVector<MidiEventRecord> buildRootChordEvents(const SongData& song, int channel, int velocity)
 {
     QVector<MidiEventRecord> events;
@@ -291,7 +647,7 @@ QVector<MidiEventRecord> buildRootChordEvents(const SongData& song, int channel,
 QVector<MidiEventRecord> buildCompingEvents(const SongData& song, int channel, int velocity)
 {
     QVector<MidiEventRecord> events;
-    const QVector<qint64> onsets = melodyOnsets(song);
+    const QVector<qint64> onsets = accentedMelodyOnsets(song);
     for (const ChordAnnotation& annotation : song.chordAnnotations)
     {
         const qint64 beat = beatLengthAt(song, annotation.startTick);
@@ -304,6 +660,38 @@ QVector<MidiEventRecord> buildCompingEvents(const SongData& song, int channel, i
                            strong ? velocity : qMax(1, velocity - 10));
         }
     }
+    return events;
+}
+
+void appendProCompingForStyle(QVector<MidiEventRecord>& events, const SongData& song,
+                              const ChordAnnotation& annotation, const QVector<qint64>& onsets,
+                              QVector<int>& previousVoicing, const GrooveProfile& profile,
+                              ProCompingStyle style, int channel, int velocity)
+{
+    const qint64 beat = beatLengthAt(song, annotation.startTick);
+    if (style == ProCompingRagtime)
+        appendRagtimeComping(events, annotation, previousVoicing, channel, velocity, beat);
+    else if (style == ProCompingPopRock)
+        appendPopComping(events, annotation, previousVoicing, profile, channel, velocity, beat);
+    else if (style == ProCompingJazz)
+        appendJazzComping(events, annotation, onsets, previousVoicing, channel, velocity, beat);
+    else if (style == ProCompingBossa)
+        appendBossaComping(events, annotation, previousVoicing, channel, velocity, beat);
+    else
+        appendBalladComping(events, annotation, previousVoicing, channel, velocity, beat);
+}
+
+QVector<MidiEventRecord> buildProCompingEvents(const SongData& song, int channel, int velocity)
+{
+    QVector<MidiEventRecord> events;
+    const GrooveProfile profile = analyzeGroove(song);
+    const ProCompingStyle style = chooseProStyle(profile);
+    const QVector<qint64> onsets = melodyOnsets(song);
+    QVector<int> previousVoicing;
+    for (const ChordAnnotation& annotation : song.chordAnnotations)
+        if (annotation.endTick > annotation.startTick)
+            appendProCompingForStyle(events, song, annotation, onsets, previousVoicing,
+                                     profile, style, channel, velocity);
     return events;
 }
 }
@@ -362,6 +750,8 @@ QVector<MidiEventRecord> buildAnnotatedChordPlaybackEvents(const SongData& song,
     QVector<MidiEventRecord> events;
     if (channel < 0 || channel >= MAX_MIDI_CHANNELS || channel == MIDI_DRUM_CHANNEL)
         return events;
+    if (mode == AnnotatedChordPlayProComping)
+        return buildProCompingEvents(song, channel, velocity);
     if (mode == AnnotatedChordPlayComping)
         return buildCompingEvents(song, channel, velocity);
     return buildRootChordEvents(song, channel, velocity);

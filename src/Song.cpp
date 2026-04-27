@@ -163,7 +163,8 @@ ChordAnnotationMode validChordAnnotationMode(int value)
 
 AnnotatedChordPlayMode validAnnotatedChordPlayMode(int value)
 {
-    if (value == AnnotatedChordPlayRootChord || value == AnnotatedChordPlayComping)
+    if (value == AnnotatedChordPlayRootChord || value == AnnotatedChordPlayComping ||
+            value == AnnotatedChordPlayProComping)
         return static_cast<AnnotatedChordPlayMode>(value);
     return AnnotatedChordPlayRootChord;
 }

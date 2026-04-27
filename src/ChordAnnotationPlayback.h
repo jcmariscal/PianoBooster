@@ -9,7 +9,8 @@ constexpr int AnnotatedChordPlaybackVolume = 82;
 enum AnnotatedChordPlayMode
 {
     AnnotatedChordPlayRootChord,
-    AnnotatedChordPlayComping
+    AnnotatedChordPlayComping,
+    AnnotatedChordPlayProComping
 };
 
 int annotatedChordPlaybackChannel(const SongData& song);

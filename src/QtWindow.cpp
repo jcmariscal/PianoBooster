@@ -90,7 +90,8 @@ int normalizedChordMode(int mode)
 
 int normalizedAnnotatedChordPlayMode(int mode)
 {
-    if (mode == AnnotatedChordPlayRootChord || mode == AnnotatedChordPlayComping)
+    if (mode == AnnotatedChordPlayRootChord || mode == AnnotatedChordPlayComping ||
+            mode == AnnotatedChordPlayProComping)
         return mode;
     return AnnotatedChordPlayRootChord;
 }
@@ -576,11 +577,17 @@ void QtWindow::createActions()
     compingPlayAct->setCheckable(true);
     compingPlayAct->setData(AnnotatedChordPlayComping);
     m_annotatedChordPlayModeGroup->addAction(compingPlayAct);
+    QAction *proCompingPlayAct = new QAction(tr("&Pro Comping"), this);
+    proCompingPlayAct->setToolTip(tr("Infer the groove and use style-aware comping patterns"));
+    proCompingPlayAct->setCheckable(true);
+    proCompingPlayAct->setData(AnnotatedChordPlayProComping);
+    m_annotatedChordPlayModeGroup->addAction(proCompingPlayAct);
     const int annotatedChordPlayMode = normalizedAnnotatedChordPlayMode(
                 m_settings->value(AnnotatedChordPlayModeSetting,
                                   AnnotatedChordPlayRootChord).toInt());
     rootChordPlayAct->setChecked(annotatedChordPlayMode == AnnotatedChordPlayRootChord);
     compingPlayAct->setChecked(annotatedChordPlayMode == AnnotatedChordPlayComping);
+    proCompingPlayAct->setChecked(annotatedChordPlayMode == AnnotatedChordPlayProComping);
     if (!m_settings->contains(AnnotatedChordPlayModeSetting) ||
             m_settings->value(AnnotatedChordPlayModeSetting).toInt() != annotatedChordPlayMode)
         m_settings->setValue(AnnotatedChordPlayModeSetting, annotatedChordPlayMode);

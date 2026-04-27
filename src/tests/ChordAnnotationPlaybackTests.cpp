@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "Chord.h"
 #include "ChordAnnotationPlayback.h"
 
 namespace {
@@ -49,15 +50,17 @@ MidiEventRecord eofRecord(qint64 tick)
     return record;
 }
 
-NoteEvent note(int pitch, qint64 start, qint64 duration)
+NoteEvent note(int pitch, qint64 start, qint64 duration,
+               int velocity = 96, int hand = -1)
 {
     NoteEvent event;
     event.startTick = start;
     event.endTick = start + duration;
     event.pitch = pitch;
-    event.velocity = 96;
+    event.velocity = velocity;
     event.channel = 0;
     event.track = 0;
+    event.hand = hand;
     return event;
 }
 
@@ -135,6 +138,34 @@ void testCompingPlaybackEvents()
                hasNoteOffAt(events, SongDataDefaultPpqn * 3 / 4), true);
 }
 
+void testProCompingRagtimeOomPah()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    song.chordAnnotations.append(annotation(0, song.durationTicks, 0, QString()));
+    song.notes.append(note(36, 0, 12, 80, PB_PART_left));
+    song.notes.append(note(36, 2 * SongDataDefaultPpqn, 12, 80, PB_PART_left));
+    const QVector<MidiEventRecord> events = buildAnnotatedChordPlaybackEvents(
+                song, 15, AnnotatedChordPlaybackVelocity, AnnotatedChordPlayProComping);
+    expectBool("pro ragtime bass beat one", hasNoteOnAt(events, 0), true);
+    expectBool("pro ragtime chord beat two", hasNoteOnAt(events, SongDataDefaultPpqn), true);
+    expectBool("pro ragtime bass beat three", hasNoteOnAt(events, 2 * SongDataDefaultPpqn), true);
+    expectBool("pro ragtime chord beat four", hasNoteOnAt(events, 3 * SongDataDefaultPpqn), true);
+}
+
+void testProCompingPopBackbeat()
+{
+    SongData song;
+    song.durationTicks = 4 * SongDataDefaultPpqn;
+    song.chordAnnotations.append(annotation(0, song.durationTicks, 0, QString()));
+    song.notes.append(note(72, SongDataDefaultPpqn, 12, 120, PB_PART_right));
+    song.notes.append(note(72, 3 * SongDataDefaultPpqn, 12, 120, PB_PART_right));
+    const QVector<MidiEventRecord> events = buildAnnotatedChordPlaybackEvents(
+                song, 15, AnnotatedChordPlaybackVelocity, AnnotatedChordPlayProComping);
+    expectBool("pro pop backbeat two", hasNoteOnAt(events, SongDataDefaultPpqn), true);
+    expectBool("pro pop backbeat four", hasNoteOnAt(events, 3 * SongDataDefaultPpqn), true);
+}
+
 void testMerge()
 {
     SongData song;
@@ -188,6 +219,8 @@ int main()
     testChordPitches();
     testPlaybackEvents();
     testCompingPlaybackEvents();
+    testProCompingRagtimeOomPah();
+    testProCompingPopBackbeat();
     testMerge();
     testMergeCompingMode();
     testNoSpareChannelLeavesSongUntouched();
